@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum RInstr {
-  SLLI, SRLI,SRAI, ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND,
+  SLLI, SRLI, SRAI, ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -109,7 +109,12 @@ pub(crate) mod r {
 }
 
 pub(crate) mod i {
-  pub fn imm(v: u32) -> u32 { v >> 20 }
+  pub fn sx_imm(v: u32) -> i32 {
+    use std::mem::transmute;
+    let v = unsafe { transmute::<u32, i32>(v) };
+    v >> 20
+  }
+  pub fn zx_imm(v: u32) -> u32 { v >> 20 }
   pub use crate::instr::r::{rs1, funct3, rd};
 }
 

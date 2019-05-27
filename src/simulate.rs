@@ -63,7 +63,6 @@ pub fn execute(m: mem::Memory) -> Result<(), ()> {
 }
 
 fn run_instr(mut ps: ProgramState) -> ProgramState {
-  ps.regs[0] = 0;
   let raw = ps.mem.read(ps.pc as usize, mem::Size::WORD).unwrap();
   if raw == HALT {
     ps.status = Status::Done;
@@ -82,15 +81,30 @@ fn run_instr(mut ps: ProgramState) -> ProgramState {
         RInstr::SLT => if ps.sx(ps.regs[rs1]) < ps.sx(ps.regs[rs2]) { 1 } else { 0 },
         RInstr::SLTU => if ps.zx(ps.regs[rs1]) < ps.zx(ps.regs[rs2]) { 1 } else { 0 },
         RInstr::XOR => ps.zx(ps.regs[rs1]) ^ ps.zx(ps.regs[rs2]),
-        RInstr::SRL => ps.zx(ps.regs[rs1]) >> rs2,
-        RInstr::SRA => ps.ret(ps.sx(ps.regs[rs1]) >> rs2),
+        RInstr::SRL => ps.zx(ps.regs[rs1]) >> ps.regs[rs2],
+        RInstr::SRA => ps.ret(ps.sx(ps.regs[rs1]) >> ps.regs[rs2]),
         RInstr::OR => ps.zx(ps.regs[rs1]) | ps.zx(ps.regs[rs2]),
         RInstr::AND => ps.zx(ps.regs[rs1]) & ps.zx(ps.regs[rs2]),
+        RInstr::SLLI => ps.zx(ps.regs[rs1]) << rs2,
+        RInstr::SRLI => ps.zx(ps.regs[rs1]) >> rs2,
+        RInstr::SRAI => ps.ret(ps.sx(ps.regs[rs1]) >> rs2),
         v => panic!("Unimplemented instruction {:?}", v),
       };
     },
-    InstrType::I(i) => match i {
-      _ => unimplemented!(),
+    InstrType::I(i) => {
+      use crate::instr::i::*;
+      use crate::instr::IInstr;
+      let (rs1, rd) = (rs1(raw) as usize, rd(raw) as usize);
+      let (sx_imm, zx_imm) = (sx_imm(raw), zx_imm(raw));
+      ps.regs[rd] = match i {
+        IInstr::ADDI => ps.ret(ps.sx(ps.regs[rs1]) + sx_imm),
+        IInstr::SLTI => if ps.sx(ps.regs[rs1]) < sx_imm { 1 } else { 0 },
+        IInstr::SLTIU => if ps.zx(ps.regs[rs1]) < zx_imm { 1 } else { 0 },
+        IInstr::XORI => ps.zx(ps.regs[rs1]) ^ zx_imm,
+        IInstr::ORI => ps.zx(ps.regs[rs1]) | zx_imm,
+        IInstr::ANDI => ps.zx(ps.regs[rs1]) & zx_imm,
+        _ => unimplemented!(),
+      };
     },
     InstrType::S(s) => match s {
       _ => unimplemented!(),
@@ -112,6 +126,7 @@ fn run_instr(mut ps: ProgramState) -> ProgramState {
       _ => unimplemented!(),
     },
   };
+  ps.regs[0] = 0;
   ps.pc += mem::WORD_SIZE as u32;
   return ps;
 }
