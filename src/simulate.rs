@@ -18,7 +18,6 @@ struct ProgramState {
 
 
 impl ProgramState {
-
   pub(crate) fn s32(v: u32) -> i32 {
     use std::mem::transmute;
     unsafe { transmute::<u32, i32>(v) }
@@ -88,7 +87,6 @@ fn run_instr(mut ps: ProgramState) -> ProgramState {
         RInstr::SLLI => ps.zx(ps.regs[rs1]) << rs2,
         RInstr::SRLI => ps.zx(ps.regs[rs1]) >> rs2,
         RInstr::SRAI => ps.ret(ps.sx(ps.regs[rs1]) >> rs2),
-        v => panic!("Unimplemented instruction {:?}", v),
       };
     },
     InstrType::I(i) => {
@@ -106,8 +104,16 @@ fn run_instr(mut ps: ProgramState) -> ProgramState {
         _ => unimplemented!(),
       };
     },
-    InstrType::S(s) => match s {
-      _ => unimplemented!(),
+    InstrType::S(s) => {
+      use crate::instr::s::*;
+      use crate::instr::SInstr;
+      let (rs1, rs2, imm) = (rs1(raw) as usize, rs2(raw) as usize, imm(raw));
+      let size = match s {
+        SInstr::SB => mem::Size::BYTE,
+        SInstr::SH => mem::Size::HALF,
+        SInstr::SW => mem::Size::WORD,
+      };
+      ps.mem.write((ps.regs[rs1] + imm) as usize, ps.regs[rs2], size).unwrap();
     },
     InstrType::B(b) => match b {
       _ => unimplemented!(),
@@ -119,11 +125,18 @@ fn run_instr(mut ps: ProgramState) -> ProgramState {
       match u {
         UInstr::LUI => ps.regs[rd] = imm,
         UInstr::AUIPC => ps.regs[rd] = imm + (ps.pc as u32),
-        _ => unimplemented!(),
       };
     },
-    InstrType::J(j) => match j {
-      _ => unimplemented!(),
+    InstrType::J(j) => {
+      use crate::instr::j::{rd, offset};
+      use crate::instr::JInstr;
+      let (rd, offset) = (rd(raw) as usize, offset(raw));
+      match j {
+        JInstr::JAL => {
+          ps.regs[rd] = ps.pc + (mem::WORD_SIZE as u32);
+          ps.pc += offset;
+        },
+      };
     },
   };
   ps.regs[0] = 0;

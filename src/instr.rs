@@ -32,7 +32,7 @@ pub(crate) enum SInstr {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum UInstr {
-  BEQ, BNE, BLT, BGE, BLTU, BGEU, SB, SH, SW, LUI, AUIPC,
+  LUI, AUIPC,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -98,14 +98,19 @@ pub(crate) fn decode(instr: u32) -> InstrType {
   }
 }
 
-fn opcode(v: u32) -> u32 { v & 0b111111 }
+
+const OPCODE_MASK: u32 = 0b1111111;
+fn opcode(v: u32) -> u32 { v & OPCODE_MASK }
+
 // R-type functions
 pub(crate) mod r {
+  const REG_MASK: u32 = 0b11111;
+  const OPCODE_SIZE: u32 = 7;
   pub fn funct7(v: u32) -> u32 { v >> 25 }
-  pub fn rs2(v: u32) -> u32 { (v >> 18) & 0b11111 }
-  pub fn rs1(v: u32) -> u32 { (v >> 13) & 0b11111 }
-  pub fn funct3(v: u32) -> u32 { (v >> 8) & 0b111 }
-  pub fn rd(v: u32) -> u32 { v & 0b11111 }
+  pub fn rs2(v: u32) -> u32 { (v >> 20) & REG_MASK }
+  pub fn rs1(v: u32) -> u32 { (v >> 15) & REG_MASK }
+  pub fn funct3(v: u32) -> u32 { (v >> 12) & 0b111 }
+  pub fn rd(v: u32) -> u32 { (v >> OPCODE_SIZE) & REG_MASK }
 }
 
 pub(crate) mod i {
@@ -119,14 +124,58 @@ pub(crate) mod i {
 }
 
 pub(crate) mod s {
-  // TODO implement joining immediates
-  pub fn imm_upper(v: u32) -> u32 { v >> 25 }
   pub use crate::instr::r::{rs2,rs1,funct3};
   use crate::instr::r::{rd};
-  pub fn imm_lower(v: u32) -> u32 { rd(v) }
+  pub fn imm(v: u32) -> u32 {
+    ((v >> 25) << 5) | rd(v)
+  }
+}
+
+pub(crate) mod b {
+  pub use crate::instr::s::{rs2, rs1, funct3};
+  use crate::instr::s::imm as s_imm;
+  pub fn imm(v: u32) -> u32 {
+    let s = s_imm(v);
+    ((s >> 11) << 12) |
+      ((s & 0b1) << 11) |
+      (((v >> 25) & 0b111111) << 5) |
+      (((v >> 8) & 0b11111) << 1)
+  }
+
+  #[test]
+  fn b_imm_test() {
+    let v: u32 = 0b1111111_00000_00000_000_11111_0000000;
+    assert_eq!(imm(v), 0b1111111111110);
+
+    let v: u32 = 0b0111111_00000_00000_000_11111_0000000;
+    assert_eq!(imm(v), 0b0111111111110);
+
+    let v: u32 = 0b1111111_00000_00000_000_11110_0000000;
+    assert_eq!(imm(v), 0b1011111111110);
+
+    let v: u32 = 0b1000000_00000_00000_000_11111_0000000;
+    assert_eq!(imm(v), 0b1100000011110);
+
+    let v: u32 = 0b1111111_00000_00000_000_00001_0000000;
+    assert_eq!(imm(v), 0b1111111100000);
+  }
 }
 
 pub(crate) mod u {
   pub fn imm(v: u32) -> u32 { v >> 12 }
   pub use crate::instr::r::{rd};
 }
+
+pub(crate) mod j {
+  pub use crate::instr::r::rd;
+  pub fn offset(v: u32) -> u32 {
+    unimplemented!();
+  }
+}
+
+
+
+
+
+
+
