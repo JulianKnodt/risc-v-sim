@@ -7,8 +7,9 @@ pub enum Size {
   BYTE,
 }
 
+#[derive(PartialEq, Clone, Debug)]
 pub struct Memory {
-  data: Vec<u8>,
+  pub data: Vec<u8>,
   size: usize,
 }
 
@@ -53,6 +54,29 @@ impl Memory {
       },
     }
   }
+  pub fn read_signed(&self, loc: usize, s: Size) -> Result<u32, ()> {
+    if loc > self.size { return Err(()) };
+    use std::{i8, i16, i32};
+    use std::mem::transmute;
+    let v = match s {
+      Size::BYTE => {
+        unsafe {
+          transmute::<u8, i8>(self.data[loc]) as i32
+        }
+      },
+      Size::HALF => {
+        let mut bytes : [u8; 2] = [0, 0];
+        (0..2).for_each(|i| bytes[i] = self.data[loc+i]);
+        i16::from_le_bytes(bytes) as i32
+      },
+      Size::WORD => {
+        let mut bytes : [u8; 4] = [0,0,0,0];
+        (0..4).for_each(|i| bytes[i] = self.data[loc+i]);
+        i32::from_le_bytes(bytes)
+      },
+    };
+    unsafe { Ok(transmute::<i32, u32>(v)) }
+  }
 }
 
 #[test]
@@ -81,6 +105,23 @@ fn test_memory_byte() {
   assert_eq!(read, data & 0xff, "read = 0x{:x}, expected = 0x{:x}", read, data);
 }
 
+#[test]
+fn test_signed_byte() {
+  let mut mem = create_memory(0x4usize);
+  let data = 0xff;
+  mem.write(0usize, data, Size::BYTE).expect("Failed to write memory correctly");
+  let read = mem.read_signed(0usize, Size::BYTE).unwrap();
+  assert_eq!(read, 0xffffffff);
+}
+
+#[test]
+fn test_signed_half() {
+  let mut mem = create_memory(0x4usize);
+  let data = 0xffff;
+  mem.write(0usize, data, Size::HALF).expect("Failed to write memory correctly");
+  let read = mem.read_signed(0usize, Size::HALF).unwrap();
+  assert_eq!(read, 0xffffffff);
+}
 
 
 

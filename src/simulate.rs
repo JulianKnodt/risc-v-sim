@@ -2,15 +2,23 @@ use crate::mem;
 use crate::instr::{self, InstrType};
 
 #[derive(Copy, Clone, PartialEq, Debug)]
+enum Exceptions {
+  Mem,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
 enum Status {
   Running,
   Done,
-  Exception(u32),
+  Exception(Exceptions),
 }
 
 const NUM_REGS: usize = 32;
+const FP_NUM_REGS: usize = 32;
+#[derive(PartialEq, Debug)]
 struct ProgramState {
   regs: [u32; NUM_REGS],
+  fp_regs: [u32; FP_NUM_REGS],
   pc: u32,
   mem: mem::Memory,
   status: Status,
@@ -22,11 +30,12 @@ impl ProgramState {
     use std::mem::transmute;
     unsafe { transmute::<u32, i32>(v) }
   }
+  #[allow(dead_code)]
   pub(crate) fn s64(v: u32) -> i64 { ProgramState::s32(v) as i64 }
-  // TODO make this generic
   pub fn sx(&self, v: u32) -> i32 { ProgramState::s32(v) }
 
   pub(crate) fn z32(v: u32) -> u32 { v }
+  #[allow(dead_code)]
   pub(crate) fn z64(v: u32) -> u64 { v as u64 }
   pub fn zx(&self, v: u32) -> u32 { ProgramState::z32(v) }
 
@@ -35,6 +44,7 @@ impl ProgramState {
     unsafe { transmute::<i32, u32>(v) }
   }
 }
+
 #[cfg(test)]
 mod conv_tests {
   use crate::simulate::ProgramState;
@@ -49,25 +59,39 @@ mod conv_tests {
 pub(crate) const HALT: u32 = 0xfeedfeed;
 
 pub fn execute(m: mem::Memory) -> Result<(), ()> {
-  let mut state = ProgramState{
+  let mut ps = ProgramState {
     pc: 0,
     regs: Default::default(),
+    fp_regs: Default::default(),
     mem: m,
     status: Status::Running
   };
-  while state.status == Status::Running {
-    state = run_instr(state);
+  while ps.status == Status::Running {
+    ps = run_instr(ps);
   }
+  ps.regs.iter()
+    .enumerate()
+    .filter(|(_, v)| **v != 0)
+    .for_each(|(i, v)| {
+      println!("x{}: {:x}", i, v)
+    });
   Ok(())
 }
 
+pub fn combine(v: u32, imm: i32) -> u32 {
+  if imm < 0 { v - (imm.abs() as u32) }
+  else { v + (imm as u32) }
+}
+
 fn run_instr(mut ps: ProgramState) -> ProgramState {
-  let raw = ps.mem.read(ps.pc as usize, mem::Size::WORD).unwrap();
+  let raw = ps.mem.read(ps.pc as usize, mem::Size::WORD)
+    .unwrap_or_else(|_| panic!("Failed to read instr at {}", ps.pc));
   if raw == HALT {
     ps.status = Status::Done;
     return ps
   }
   let instr = instr::decode(raw);
+  println!("{:?}", instr);
   match instr {
     instr::InstrType::R(r) => {
       use crate::instr::r::*;
@@ -101,7 +125,26 @@ fn run_instr(mut ps: ProgramState) -> ProgramState {
         IInstr::XORI => ps.zx(ps.regs[rs1]) ^ zx_imm,
         IInstr::ORI => ps.zx(ps.regs[rs1]) | zx_imm,
         IInstr::ANDI => ps.zx(ps.regs[rs1]) & zx_imm,
-        _ => unimplemented!(),
+        IInstr::JALR => {
+          let result = ps.pc;
+          ps.pc = ps.ret((ps.sx(ps.regs[rs1]) + sx_imm) & -2);
+          result
+        },
+        IInstr::LW =>
+          ps.mem.read((ps.sx(ps.regs[rs1])+sx_imm) as usize, mem::Size::WORD)
+            .unwrap_or_else(|_| ps.regs[rd]),
+        IInstr::LH =>
+          ps.mem.read((ps.sx(ps.regs[rs1])+sx_imm) as usize, mem::Size::HALF)
+            .unwrap_or_else(|_| ps.regs[rd]),
+        IInstr::LB =>
+          ps.mem.read((ps.sx(ps.regs[rs1])+sx_imm) as usize, mem::Size::BYTE)
+            .unwrap_or_else(|_| ps.regs[rd]),
+        IInstr::LHU =>
+          ps.mem.read_signed((ps.sx(ps.regs[rs1])+sx_imm) as usize, mem::Size::HALF)
+            .unwrap_or_else(|_| ps.regs[rd]),
+        IInstr::LBU =>
+          ps.mem.read_signed((ps.sx(ps.regs[rs1])+sx_imm) as usize, mem::Size::BYTE)
+            .unwrap_or_else(|_| ps.regs[rd]),
       };
     },
     InstrType::S(s) => {
@@ -113,10 +156,26 @@ fn run_instr(mut ps: ProgramState) -> ProgramState {
         SInstr::SH => mem::Size::HALF,
         SInstr::SW => mem::Size::WORD,
       };
-      ps.mem.write((ps.regs[rs1] + imm) as usize, ps.regs[rs2], size).unwrap();
+      if let Err(e) = ps.mem.write((ps.regs[rs1] + imm) as usize, ps.regs[rs2], size) {
+          println!("{:?}", e);
+          ps.status = Status::Exception(Exceptions::Mem);
+      };
     },
-    InstrType::B(b) => match b {
-      _ => unimplemented!(),
+    InstrType::B(b) => {
+      use crate::instr::b::*;
+      use crate::instr::BInstr;
+      let (rs2, rs1) = (rs2(raw) as usize, rs1(raw) as usize);
+      let branch = match b {
+        BInstr::BEQ => ps.regs[rs1] == ps.regs[rs2],
+        BInstr::BNE => ps.regs[rs1] != ps.regs[rs2],
+        BInstr::BLT => ps.sx(ps.regs[rs1]) < ps.sx(ps.regs[rs2]),
+        BInstr::BGE => ps.sx(ps.regs[rs1]) >= ps.sx(ps.regs[rs2]),
+        BInstr::BLTU => ps.zx(ps.regs[rs1]) < ps.zx(ps.regs[rs2]),
+        BInstr::BGEU => ps.zx(ps.regs[rs1]) >= ps.zx(ps.regs[rs2]),
+      };
+      if branch {
+        ps.pc = combine(ps.pc, imm(raw)) - (mem::WORD_SIZE as u32);
+      };
     },
     InstrType::U(u) => {
       use crate::instr::u::*;
@@ -133,8 +192,8 @@ fn run_instr(mut ps: ProgramState) -> ProgramState {
       let (rd, offset) = (rd(raw) as usize, offset(raw));
       match j {
         JInstr::JAL => {
-          ps.regs[rd] = ps.pc + (mem::WORD_SIZE as u32);
-          ps.pc += offset;
+          ps.regs[rd] = ps.pc;
+          ps.pc = combine(ps.pc, offset) - (mem::WORD_SIZE as u32);
         },
       };
     },

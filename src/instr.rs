@@ -2,6 +2,8 @@
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum RInstr {
   SLLI, SRLI, SRAI, ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND,
+  // M-extension
+  // MUL, MULH, MULHSU, MULHU, DIV, DIVU, REM, REMU,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -92,9 +94,18 @@ pub(crate) fn decode(instr: u32) -> InstrType {
       (32, 0b101) => InstrType::R(RInstr::SRA),
       (0, 0b110) => InstrType::R(RInstr::OR),
       (0, 0b111) => InstrType::R(RInstr::AND),
+      // Multiplication extension
+      //(1, 0b000) => InstrType::R(RInstr::MUL),
+      //(1, 0b001) => InstrType::R(RInstr::MULH),
+      //(1, 0b010) => InstrType::R(RInstr::MULHSU),
+      //(1, 0b011) => InstrType::R(RInstr::MULHU),
+      //(1, 0b100) => InstrType::R(RInstr::DIV),
+      //(1, 0b101) => InstrType::R(RInstr::DIVU),
+      //(1, 0b110) => InstrType::R(RInstr::REM),
+      //(1, 0b111) => InstrType::R(RInstr::REMU),
       (f7, f3) => panic!("Unexpected funct7 & funct3 for opcode 0b0110011: {}, {}", f7, f3),
     },
-    _ => unimplemented!(),
+    v => panic!("Unexpected Opcode {:b} for instr {:b}", v, instr),
   }
 }
 
@@ -125,7 +136,7 @@ pub(crate) mod i {
 
 pub(crate) mod s {
   pub use crate::instr::r::{rs2,rs1,funct3};
-  use crate::instr::r::{rd};
+  use crate::instr::r::rd;
   pub fn imm(v: u32) -> u32 {
     ((v >> 25) << 5) | rd(v)
   }
@@ -134,42 +145,81 @@ pub(crate) mod s {
 pub(crate) mod b {
   pub use crate::instr::s::{rs2, rs1, funct3};
   use crate::instr::s::imm as s_imm;
-  pub fn imm(v: u32) -> u32 {
+  const SIGN_MASK: u32 = 0xFFFFF000;
+  pub fn imm(v: u32) -> i32 {
     let s = s_imm(v);
-    ((s >> 11) << 12) |
-      ((s & 0b1) << 11) |
+    let sign_bit = s >> 11;
+    let out = ((s & 0b1) << 11) |
       (((v >> 25) & 0b111111) << 5) |
-      (((v >> 8) & 0b11111) << 1)
+      (((v >> 8) & 0b11111) << 1);
+    unsafe {
+      std::mem::transmute::<u32, i32>(
+        if sign_bit == 1 { SIGN_MASK | out } else { out }
+      )
+    }
   }
 
   #[test]
   fn b_imm_test() {
     let v: u32 = 0b1111111_00000_00000_000_11111_0000000;
-    assert_eq!(imm(v), 0b1111111111110);
+    assert_eq!(imm(v), -2);
 
     let v: u32 = 0b0111111_00000_00000_000_11111_0000000;
     assert_eq!(imm(v), 0b0111111111110);
+    assert_eq!(imm(v) >> 12, 0);
 
     let v: u32 = 0b1111111_00000_00000_000_11110_0000000;
-    assert_eq!(imm(v), 0b1011111111110);
+    assert_eq!(imm(v) & 0x1FFF, 0b1011111111110);
+    assert_eq!(imm(v) >> 12, -1);
 
     let v: u32 = 0b1000000_00000_00000_000_11111_0000000;
-    assert_eq!(imm(v), 0b1100000011110);
+    assert_eq!(imm(v) & 0xFFF, 0b100000011110, "0b{:b}", imm(v));
+    assert_eq!(imm(v) >> 12, -1);
 
     let v: u32 = 0b1111111_00000_00000_000_00001_0000000;
-    assert_eq!(imm(v), 0b1111111100000);
+    assert_eq!(imm(v) & 0xFFF, 0b111111100000);
+    assert_eq!(imm(v) >> 12, -1)
   }
 }
 
 pub(crate) mod u {
-  pub fn imm(v: u32) -> u32 { v >> 12 }
+  pub fn imm(v: u32) -> u32 { v & 0xfffff000 }
   pub use crate::instr::r::{rd};
 }
 
 pub(crate) mod j {
   pub use crate::instr::r::rd;
-  pub fn offset(v: u32) -> u32 {
-    unimplemented!();
+  const SIGN_MASK: u32 = 0xFFF00000;
+  pub fn offset(v: u32) -> i32 {
+    let sign_bit = v >> 31;
+    let  v = (((v >> 20) & 0b1) << 11) | ((v >> 20) & 0x7fe) | (v & 0xFF000);
+    unsafe {
+      std::mem::transmute::<u32, i32>(
+        if sign_bit == 1 { SIGN_MASK | v } else { v }
+      )
+    }
+  }
+
+  #[test]
+  fn test_imm() {
+    let v = 0b1_1111111111_1_11111111_000000000000;
+    assert_eq!(offset(v), -2, "0b{:b}",  offset(v));
+
+    let v = 0b0_1111111111_1_11111111_000000000000;
+    assert_eq!(offset(v), 0x7FFFF << 1, "0b{:b}",  offset(v));
+    assert_eq!(offset(v) >> 20, 0);
+
+    let v = 0b1_0000000000_1_11111111_000000000000;
+    assert_eq!(offset(v) & 0xFFFFF, 0b11111111_1_00000000000);
+    assert_eq!(offset(v) >> 20, -1, "{:b}", offset(v) >> 20);
+
+    let v = 0b1_1111111111_0_11111111_000000000000;
+    assert_eq!(offset(v) & 0xFFFFF, 0b11111111_0_1111111111_0, "0b{:b}",  offset(v) & 0xFFFFF);
+    assert_eq!(offset(v) >> 20, -1, "{:b}", offset(v) >> 20);
+
+    let v = 0b1_1111111111_1_00000000_000000000000;
+    assert_eq!(offset(v) & 0xFFFFF, 0b00000000_1_1111111111_0, "0b{:b}",  offset(v) & 0xFFFFF);
+    assert_eq!(offset(v) >> 20, -1, "{:b}", offset(v) >> 20);
   }
 }
 
