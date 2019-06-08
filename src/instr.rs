@@ -9,6 +9,8 @@ pub(crate) enum RInstr {
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum IInstr {
   JALR, LB, LH, LW, LBU, LHU, ADDI, SLTI, SLTIU, XORI, ORI, ANDI,
+
+  ECALL, EBREAK, CSRRW, CSRRS, CSRRC, CSRRWI, CSRRSI, CSRRCI,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -23,8 +25,7 @@ pub(crate) enum JInstr {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Instr {
-  FENCE, FENCEI, ECALL, EBREAK,
-  CSRRW, CSRRS, CSRRC, CSRRWI, CSRRSI, CSRRCI,
+  FENCE, FENCEI,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -104,6 +105,20 @@ pub(crate) fn decode(instr: u32) -> InstrType {
       //(1, 0b110) => InstrType::R(RInstr::REM),
       //(1, 0b111) => InstrType::R(RInstr::REMU),
       (f7, f3) => panic!("Unexpected funct7 & funct3 for opcode 0b0110011: {}, {}", f7, f3),
+    },
+    0b1110011 => match i::funct3(instr) {
+      0b000 => match i::zx_imm(instr) {
+        0 => InstrType::I(IInstr::ECALL),
+        1 => InstrType::I(IInstr::EBREAK),
+        v => panic!("Unexpected immediate for opcode: 0b1110011, funct3: 0b000, {}", v),
+      },
+      0b001 => InstrType::I(IInstr::CSRRW),
+      0b010 => InstrType::I(IInstr::CSRRS),
+      0b011 => InstrType::I(IInstr::CSRRC),
+      0b101 => InstrType::I(IInstr::CSRRW),
+      0b110 => InstrType::I(IInstr::CSRRS),
+      0b111 => InstrType::I(IInstr::CSRRC),
+      v => panic!("Unexpected funct3 for opcode: 0b1110011, funct3: {}", v),
     },
     v => panic!("Unexpected Opcode {:b} for instr {:b}", v, instr),
   }
