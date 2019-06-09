@@ -2,15 +2,37 @@ extern crate num;
 use num::{Zero, One};
 use std::ops::{Add, AddAssign, Sub, Shr, Shl, BitAnd, BitOr, BitXor};
 
-pub trait RegData: Zero + One + Add<Output=Self> + AddAssign + Clone + Copy + From<u32> +
-  Sub<Output=Self> + std::fmt::Debug + PartialEq + PartialOrd + Shl<Output=Self> +
-  Shr<Output=Self> + BitAnd<Output=Self> + BitOr<Output=Self> + BitXor<Output=Self>{
+pub trait RegData: Zero + One + Add<Output=Self> + AddAssign + Clone + Copy + From<u32>
+  + From<u8> + Sub<Output=Self> + std::fmt::Debug + PartialEq + PartialOrd + Shl<Output=Self>
+  + Shr<Output=Self> + BitAnd<Output=Self> + BitOr<Output=Self> + BitXor<Output=Self> {
 
   // Corresponding signed type
-  type Signed: Clone + Copy + From<i32> + Add<Output=Self::Signed> + Sub<Output=Self::Signed> +
-  PartialEq + PartialOrd + Shl<Output=Self::Signed> + Shr<Output=Self::Signed> +
-  BitAnd<Output=Self::Signed>;
+  type Signed: Clone + Copy + From<i32> + Add<Output=Self::Signed>
+  + Sub<Output=Self::Signed> + PartialEq + PartialOrd + Shl<Output=Self::Signed>
+  + Shr<Output=Self::Signed> + BitAnd<Output=Self::Signed>;
 
+  fn to_signed(self) -> Self::Signed;
+  fn from_signed(v: Self::Signed) -> Self;
+  fn offset(&self, offset: Self::Signed) -> Self;
+  fn as_usize(&self) -> usize;
+
+  // Byte Representation of Data
+  // The best version would be this, but doesn't compile yet
+  // Some bugs on github opened for it
+  // const BYTE_SIZE: usize;
+  // fn to_le_bytes(&self) -> [u8; Self::BYTE_SIZE];
+  const BYTE_SIZE: usize;
+  fn to_le_bytes(&self) -> Box<[u8]>;
+  fn from_le_bytes(bytes: Box<[u8]>) -> Self;
+}
+
+impl RegData for u32 {
+  type Signed = i32;
+  fn offset(&self, s: i32) -> u32 {
+    if s < 0 { self - (s.abs() as u32) }
+    else { self + (s as u32) }
+  }
+  fn as_usize(&self) -> usize { *self as usize }
   #[inline]
   fn to_signed(self) -> Self::Signed {
     unsafe {
@@ -23,17 +45,14 @@ pub trait RegData: Zero + One + Add<Output=Self> + AddAssign + Clone + Copy + Fr
       std::mem::transmute::<Self::Signed, Self>(v)
     }
   }
-  fn offset(&self, offset: Self::Signed) -> Self;
-  fn as_usize(&self) -> usize;
-}
 
-impl RegData for u32 {
-  type Signed = i32;
-  fn offset(&self, s: i32) -> u32 {
-    if s < 0 { self - (s.abs() as u32) }
-    else { self + (s as u32) }
+  const BYTE_SIZE: usize = 4;
+  fn to_le_bytes(&self) -> Box<[u8]> { Box::new(u32::to_le_bytes(*self)) }
+  fn from_le_bytes(bytes: Box<[u8]>) -> Self {
+    let mut temp: [u8; Self::BYTE_SIZE] = Default::default();
+    temp.copy_from_slice(&bytes);
+    Self::from_le_bytes(temp)
   }
-  fn as_usize(&self) -> usize { *self as usize }
 }
 impl RegData for u64 {
   type Signed = i64;
@@ -42,6 +61,28 @@ impl RegData for u64 {
     else { self + (s as u64) }
   }
   fn as_usize(&self) -> usize { *self as usize }
+  #[inline]
+  fn to_signed(self) -> Self::Signed {
+    unsafe {
+      std::mem::transmute::<Self, Self::Signed>(self)
+    }
+  }
+  #[inline]
+  fn from_signed(v: Self::Signed) -> Self {
+    unsafe {
+      std::mem::transmute::<Self::Signed, Self>(v)
+    }
+  }
+
+
+
+  const BYTE_SIZE: usize = 8;
+  fn to_le_bytes(&self) -> Box<[u8]> { Box::new(u64::to_le_bytes(*self)) }
+  fn from_le_bytes(bytes: Box<[u8]>) -> Self {
+    let mut temp: [u8; Self::BYTE_SIZE] = Default::default();
+    temp.copy_from_slice(&bytes);
+    Self::from_le_bytes(temp)
+  }
 }
 
 //pub trait FpRegData: Zero + Add<Output=Self> {}

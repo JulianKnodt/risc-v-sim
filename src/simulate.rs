@@ -25,29 +25,11 @@ struct ProgramState<T : RegData> {
 
 
 impl <T : RegData> ProgramState<T> {
-  pub fn sx(&self, reg: RegisterEntry<T>) -> T::Signed {
-    reg.v().to_signed()
-  }
-
+  // Sign Extend
+  pub fn sx(&self, reg: RegisterEntry<T>) -> T::Signed { reg.v().to_signed() }
+  // Zero Extend
   pub fn zx(&self, reg: RegisterEntry<T>) -> T { reg.v() }
-
-  pub fn ret(&self, v: i32) -> u32 {
-    use std::mem::transmute;
-    unsafe { transmute::<i32, u32>(v) }
-  }
 }
-
-#[cfg(test)]
-mod conv_tests {
-  use crate::simulate::ProgramState;
-  #[test]
-  fn test_conversions() {
-    let x: u32 = 0x12345678;
-    assert_eq!(x.to_ne_bytes(), ProgramState::s32(x).to_ne_bytes());
-    assert_eq!(ProgramState::z64(x), 0x00000000_12345678);
-  }
-}
-
 
 pub fn execute(m: mem::Memory) -> Result<(), ()> {
   let mut ps = ProgramState::<u32> {
@@ -103,7 +85,7 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
         IInstr::ANDI => ps.zx(ps.regs[rs1]) & zx_imm,
         IInstr::JALR => {
           let result = ps.regs.pc;
-          ps.regs.pc = T::from_signed((ps.sx(ps.regs[rs1]) + sx_imm) & T::from(-2));
+          ps.regs.pc = T::from_signed((ps.sx(ps.regs[rs1]) + sx_imm) & T::Signed::from(-2));
           result
         },
         IInstr::LW =>
@@ -116,12 +98,14 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
           ps.mem.read(T::from_signed(ps.sx(ps.regs[rs1])+sx_imm).as_usize(), mem::Size::BYTE)
             .unwrap_or_else(|_| ps.regs[rd].v()),
         IInstr::LHU =>
-          ps.mem.read_signed(T::from_signed(ps.sx(ps.regs[rs1])+sx_imm)
+          ps.mem.read_signed::<T>(T::from_signed(ps.sx(ps.regs[rs1])+sx_imm)
             .as_usize(), mem::Size::HALF)
+            .map(|s| T::from_signed(s))
             .unwrap_or_else(|_| ps.regs[rd].v()),
         IInstr::LBU =>
-          ps.mem.read_signed(T::from_signed(ps.sx(ps.regs[rs1])+sx_imm)
+          ps.mem.read_signed::<T>(T::from_signed(ps.sx(ps.regs[rs1])+sx_imm)
           .as_usize(), mem::Size::BYTE)
+            .map(|s| T::from_signed(s))
             .unwrap_or_else(|_| ps.regs[rd].v()),
         v => panic!("Unimplemented {:?}", v),
       });

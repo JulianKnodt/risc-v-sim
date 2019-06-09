@@ -1,11 +1,10 @@
-// use crate::reg::{RegData};
-use std::u32;
-
+use crate::reg::RegData;
 pub const WORD_SIZE: usize = 4;
 pub enum Size {
   WORD,
   HALF,
   BYTE,
+  // DOUBLE,
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -20,7 +19,7 @@ pub fn create_memory(size: usize) -> Memory {
 }
 
 impl Memory {
-  pub fn write(&mut self, loc: usize, data: u32, s: Size) -> Result<(), ()> {
+  pub fn write<T : RegData>(&mut self, loc: usize, data: T, s: Size) -> Result<(), ()> {
     if loc > self.size { return Err(()) };
     let bytes = data.to_le_bytes();
     match s {
@@ -37,46 +36,45 @@ impl Memory {
     };
     Ok(())
   }
-  pub fn read(&self, loc: usize, s: Size) -> Result<u32, ()> {
+  pub fn read<T : RegData>(&self, loc: usize, s: Size) -> Result<T, ()> {
     if loc > self.size { return Err(()) };
     match s {
       Size::BYTE => {
-        Ok(self.data[loc] as u32)
+        Ok(T::from(self.data[loc]))
       },
       Size::HALF => {
         let mut bytes : [u8; 4] = [0,0,0,0];
         (0..2).for_each(|i| bytes[i] = self.data[loc+i]);
-        Ok(u32::from_le_bytes(bytes))
+        Ok(T::from_le_bytes(Box::new(bytes)))
       },
       Size::WORD => {
         let mut bytes : [u8; 4] = [0,0,0,0];
         (0..4).for_each(|i| bytes[i] = self.data[loc+i]);
-        Ok(u32::from_le_bytes(bytes))
+        Ok(T::from_le_bytes(Box::new(bytes)))
       },
     }
   }
-  pub fn read_signed(&self, loc: usize, s: Size) -> Result<u32, ()> {
+  pub fn read_signed<T : RegData>(&self, loc: usize, s: Size) -> Result<T::Signed, ()> {
     if loc > self.size { return Err(()) };
     use std::{i8, i16, i32};
-    use std::mem::transmute;
     let v = match s {
       Size::BYTE => {
         unsafe {
-          transmute::<u8, i8>(self.data[loc]) as i32
+          T::Signed::from(std::mem::transmute::<u8, i8>(self.data[loc]) as i32)
         }
       },
       Size::HALF => {
         let mut bytes : [u8; 2] = [0, 0];
         (0..2).for_each(|i| bytes[i] = self.data[loc+i]);
-        i16::from_le_bytes(bytes) as i32
+        T::Signed::from(i16::from_le_bytes(bytes) as i32)
       },
       Size::WORD => {
         let mut bytes : [u8; 4] = [0,0,0,0];
         (0..4).for_each(|i| bytes[i] = self.data[loc+i]);
-        i32::from_le_bytes(bytes)
+        T::Signed::from(i32::from_le_bytes(bytes))
       },
     };
-    unsafe { Ok(transmute::<i32, u32>(v)) }
+    Ok(v)
   }
 }
 
@@ -85,7 +83,7 @@ fn test_memory_word() {
   let mut mem = create_memory(0x8000usize);
   let data = 0x12345678u32;
   mem.write(0usize, data, Size::WORD).expect("Failed to write memory correctly");
-  assert_eq!(mem.read(0usize, Size::WORD).unwrap(), data);
+  assert_eq!(mem.read::<u32>(0usize, Size::WORD).unwrap(), data);
 }
 
 #[test]
@@ -93,7 +91,7 @@ fn test_memory_half() {
   let mut mem = create_memory(0x8000usize);
   let data = 0x12345678u32;
   mem.write(0usize, data, Size::HALF).expect("Failed to write memory correctly");
-  let read = mem.read(0usize, Size::HALF).unwrap();
+  let read = mem.read::<u32>(0usize, Size::HALF).unwrap();
   assert_eq!(read, data & 0xffff, "read = 0x{:x}, expected = 0x{:x}", read, data);
 }
 
@@ -102,25 +100,25 @@ fn test_memory_byte() {
   let mut mem = create_memory(0x8000usize);
   let data = 0x12345678u32;
   mem.write(0usize, data, Size::BYTE).expect("Failed to write memory correctly");
-  let read = mem.read(0usize, Size::BYTE).unwrap();
+  let read = mem.read::<u32>(0usize, Size::BYTE).unwrap();
   assert_eq!(read, data & 0xff, "read = 0x{:x}, expected = 0x{:x}", read, data);
 }
 
 #[test]
 fn test_signed_byte() {
   let mut mem = create_memory(0x4usize);
-  let data = 0xff;
+  let data = 0xffu32;
   mem.write(0usize, data, Size::BYTE).expect("Failed to write memory correctly");
-  let read = mem.read_signed(0usize, Size::BYTE).unwrap();
+  let read = u32::from_signed(mem.read_signed::<u32>(0usize, Size::BYTE).unwrap());
   assert_eq!(read, 0xffffffff);
 }
 
 #[test]
 fn test_signed_half() {
   let mut mem = create_memory(0x4usize);
-  let data = 0xffff;
+  let data = 0xffffu32;
   mem.write(0usize, data, Size::HALF).expect("Failed to write memory correctly");
-  let read = mem.read_signed(0usize, Size::HALF).unwrap();
+  let read = u32::from_signed(mem.read_signed::<u32>(0usize, Size::HALF).unwrap());
   assert_eq!(read, 0xffffffff);
 }
 
