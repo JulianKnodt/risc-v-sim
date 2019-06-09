@@ -1,44 +1,18 @@
 use crate::mem;
-use crate::reg::{Register, RegData, RegisterEntry};
+use crate::program_state::{ProgramState, Status, Exceptions};
+use crate::reg::{RegData, RegisterEntry};
 use crate::instr::{self, InstrType};
-
-#[derive(Copy, Clone, PartialEq, Debug)]
-enum Exceptions {
-  Mem,
-}
-
-#[derive(Copy, Clone, PartialEq, Debug)]
-enum Status {
-  Running,
-  Done,
-  Exception(Exceptions),
-}
 
 pub(crate) const HALT: u32 = 0xfeedfeed;
 
-#[derive(PartialEq, Debug)]
-struct ProgramState<T : RegData> {
-  regs: Register<T>,
-  mem: mem::Memory,
-  status: Status,
-}
-
-
-impl <T : RegData> ProgramState<T> {
-  // Sign Extend
-  pub fn sx(&self, reg: RegisterEntry<T>) -> T::Signed { reg.v().to_signed() }
-  // Zero Extend
-  pub fn zx(&self, reg: RegisterEntry<T>) -> T { reg.v() }
-}
-
-pub fn execute(m: mem::Memory) -> Result<(), ()> {
-  let mut ps = ProgramState::<u32> {
-    regs: Register::new(32),
-    mem: m,
-    status: Status::Running
-  };
+pub fn execute<T : RegData>(mut ps: ProgramState<T>) -> Result<ProgramState<T>, ()> {
   while ps.status == Status::Running { ps = run_instr(ps); }
-  Ok(())
+  ps.regs.data.iter().enumerate().for_each(|(i,r)| {
+    if r.v() != T::zero() {
+      println!("[x{}: {:x}]", i, r.v())
+    }
+  });
+  Ok(ps)
 }
 
 fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
@@ -51,10 +25,8 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
   let instr = instr::decode(raw);
   println!("{:?}", instr);
   match instr {
-    instr::InstrType::R(r) => {
-      use crate::instr::r::*;
+    instr::InstrType::R{ var: r, rs1, rs2, rd } => {
       use crate::instr::RInstr;
-      let (rs2, rs1, rd) = (rs2(raw), rs1(raw), rd(raw));
       ps.regs[rd] = RegisterEntry::Valid(match r {
         RInstr::ADD => T::from_signed(ps.sx(ps.regs[rs1]) + ps.sx(ps.regs[rs1])),
         RInstr::SUB => T::from_signed(ps.sx(ps.regs[rs1]) - ps.sx(ps.regs[rs2])),
@@ -71,11 +43,9 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
         RInstr::SRAI => T::from_signed(ps.sx(ps.regs[rs1]) >> T::from(rs2).to_signed()),
       });
     },
-    InstrType::I(i) => {
-      use crate::instr::i::*;
+    InstrType::I{ var: i, rs1, rd, sx_imm: sx, zx_imm: zx } => {
       use crate::instr::IInstr;
-      let (rs1, rd) = (rs1(raw), rd(raw));
-      let (sx_imm, zx_imm) = (T::Signed::from(sx_imm(raw)), T::from(zx_imm(raw)));
+      let (sx_imm, zx_imm) = (T::Signed::from(sx), T::from(zx));
       ps.regs[rd] = RegisterEntry::Valid(match i {
         IInstr::ADDI => T::from_signed(ps.sx(ps.regs[rs1]) + sx_imm),
         IInstr::SLTI => if ps.sx(ps.regs[rs1]) < sx_imm { T::one() } else { T::zero() },
@@ -110,10 +80,8 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
         v => panic!("Unimplemented {:?}", v),
       });
     },
-    InstrType::S(s) => {
-      use crate::instr::s::*;
+    InstrType::S{ var: s, rs1, rs2, imm } => {
       use crate::instr::SInstr;
-      let (rs1, rs2, imm) = (rs1(raw), rs2(raw), imm(raw));
       let size = match s {
         SInstr::SB => mem::Size::BYTE,
         SInstr::SH => mem::Size::HALF,
@@ -125,10 +93,8 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
           ps.status = Status::Exception(Exceptions::Mem);
       };
     },
-    InstrType::B(b) => {
-      use crate::instr::b::*;
+    InstrType::B{ var: b, rs1, rs2, imm } => {
       use crate::instr::BInstr;
-      let (rs2, rs1) = (rs2(raw), rs1(raw));
       let branch = match b {
         BInstr::BEQ => ps.regs[rs1] == ps.regs[rs2],
         BInstr::BNE => ps.regs[rs1] != ps.regs[rs2],
@@ -138,23 +104,19 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
         BInstr::BGEU => ps.zx(ps.regs[rs1]) >= ps.zx(ps.regs[rs2]),
       };
       if branch {
-        ps.regs.pc = ps.regs.pc.offset(T::Signed::from(imm(raw)))
+        ps.regs.pc = ps.regs.pc.offset(T::Signed::from(imm))
           - T::from(mem::WORD_SIZE as u32);
       };
     },
-    InstrType::U(u) => {
-      use crate::instr::u::*;
+    InstrType::U{ var: u, rd, imm } => {
       use crate::instr::UInstr;
-      let (rd, imm) = (rd(raw), imm(raw));
       ps.regs[rd] = RegisterEntry::Valid(match u {
         UInstr::LUI => T::from(imm),
         UInstr::AUIPC => T::from(imm) + ps.regs.pc,
       });
     },
-    InstrType::J(j) => {
-      use crate::instr::j::{rd, offset};
+    InstrType::J{ var: j, rd, offset } => {
       use crate::instr::JInstr;
-      let (rd, offset) = (rd(raw), offset(raw));
       match j {
         JInstr::JAL => {
           ps.regs[rd] = RegisterEntry::Valid(ps.regs.pc);

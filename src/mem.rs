@@ -23,25 +23,16 @@ impl Memory {
     if loc > self.size { return Err(()) };
     let bytes = data.to_le_bytes();
     match s {
-      Size::BYTE => {
-        assert_ne!(bytes[0], 0);
-        self.data[loc] = bytes[0];
-      },
-      Size::HALF => {
-        (0..2).for_each(|i| self.data[loc+i] = bytes[i]);
-      },
-      Size::WORD => {
-        (0..4).for_each(|i| self.data[loc+i] = bytes[i]);
-      },
+      Size::BYTE => self.data[loc] = bytes[0],
+      Size::HALF => (0..2).for_each(|i| self.data[loc+i] = bytes[i]),
+      Size::WORD => (0..4).for_each(|i| self.data[loc+i] = bytes[i]),
     };
     Ok(())
   }
   pub fn read<T : RegData>(&self, loc: usize, s: Size) -> Result<T, ()> {
     if loc > self.size { return Err(()) };
     match s {
-      Size::BYTE => {
-        Ok(T::from(self.data[loc]))
-      },
+      Size::BYTE => Ok(T::from(self.data[loc])),
       Size::HALF => {
         let mut bytes : [u8; 4] = [0,0,0,0];
         (0..2).for_each(|i| bytes[i] = self.data[loc+i]);

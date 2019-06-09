@@ -4,12 +4,13 @@ use std::ops::{Add, AddAssign, Sub, Shr, Shl, BitAnd, BitOr, BitXor};
 
 pub trait RegData: Zero + One + Add<Output=Self> + AddAssign + Clone + Copy + From<u32>
   + From<u8> + Sub<Output=Self> + std::fmt::Debug + PartialEq + PartialOrd + Shl<Output=Self>
-  + Shr<Output=Self> + BitAnd<Output=Self> + BitOr<Output=Self> + BitXor<Output=Self> {
+  + Shr<Output=Self> + BitAnd<Output=Self> + BitOr<Output=Self> + BitXor<Output=Self>
+  + std::fmt::LowerHex {
 
   // Corresponding signed type
   type Signed: Clone + Copy + From<i32> + Add<Output=Self::Signed>
-  + Sub<Output=Self::Signed> + PartialEq + PartialOrd + Shl<Output=Self::Signed>
-  + Shr<Output=Self::Signed> + BitAnd<Output=Self::Signed>;
+    + Sub<Output=Self::Signed> + PartialEq + PartialOrd + Shl<Output=Self::Signed>
+    + Shr<Output=Self::Signed> + BitAnd<Output=Self::Signed>;
 
   fn to_signed(self) -> Self::Signed;
   fn from_signed(v: Self::Signed) -> Self;
@@ -35,15 +36,11 @@ impl RegData for u32 {
   fn as_usize(&self) -> usize { *self as usize }
   #[inline]
   fn to_signed(self) -> Self::Signed {
-    unsafe {
-      std::mem::transmute::<Self, Self::Signed>(self)
-    }
+    unsafe { std::mem::transmute::<Self, Self::Signed>(self) }
   }
   #[inline]
   fn from_signed(v: Self::Signed) -> Self {
-    unsafe {
-      std::mem::transmute::<Self::Signed, Self>(v)
-    }
+    unsafe { std::mem::transmute::<Self::Signed, Self>(v) }
   }
 
   const BYTE_SIZE: usize = 4;
@@ -123,7 +120,7 @@ impl <T : RegData> Default for RegisterEntry<T> {
 
 #[derive(PartialEq, Debug)]
 pub struct Register<T : RegData> {
-  data: Vec<RegisterEntry<T>>,
+  pub(crate) data: Vec<RegisterEntry<T>>,
   pub pc: T,
 }
 

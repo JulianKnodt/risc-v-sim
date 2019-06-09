@@ -10,6 +10,7 @@ pub(crate) enum RInstr {
 pub(crate) enum IInstr {
   JALR, LB, LH, LW, LBU, LHU, ADDI, SLTI, SLTIU, XORI, ORI, ANDI,
 
+  // unimplemented
   ECALL, EBREAK, CSRRW, CSRRS, CSRRC, CSRRWI, CSRRSI, CSRRCI,
 }
 
@@ -23,6 +24,7 @@ pub(crate) enum JInstr {
   JAL,
 }
 
+// not sure what to do with these
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Instr {
   FENCE, FENCEI,
@@ -40,61 +42,94 @@ pub(crate) enum UInstr {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum InstrType {
-  R(RInstr), I(IInstr), S(SInstr), B(BInstr), U(UInstr), J(JInstr),
+  R{ var: RInstr, rs1: u32, rs2: u32, rd: u32 },
+  I{ var: IInstr, rs1: u32, rd: u32, sx_imm: i32, zx_imm: u32 },
+  S{ var: SInstr, rs1: u32, rs2: u32, imm: u32 },
+  B{ var: BInstr, rs1: u32, rs2: u32, imm: i32 },
+  U{ var: UInstr, rd: u32, imm: u32 },
+  J{ var: JInstr, rd: u32, offset: i32 } ,
+}
+
+impl InstrType {
+  pub fn r(r: RInstr, v: u32) -> InstrType {
+    use self::r::*;
+    InstrType::R{ var: r, rs1: rs1(v), rs2: rs2(v), rd: rd(v) }
+  }
+  pub fn i(i: IInstr, v: u32) -> InstrType {
+    use self::i::*;
+    InstrType::I{ var: i, rs1: rs1(v), rd: rd(v), sx_imm: sx_imm(v), zx_imm: zx_imm(v) }
+  }
+  pub fn s(s: SInstr, v: u32) -> InstrType {
+    use self::s::*;
+    InstrType::S{ var: s, rs1: rs1(v), rs2: rs2(v), imm: imm(v) }
+  }
+  pub fn b(b: BInstr, v: u32) -> InstrType {
+    use self::b::*;
+    InstrType::B{ var: b, rs1: rs1(v), rs2: rs2(v), imm: imm(v) }
+  }
+  pub fn u(u: UInstr, v: u32) -> InstrType {
+    use self::u::*;
+    InstrType::U{ var: u, rd: rd(v), imm: imm(v) }
+  }
+  pub fn j(j: JInstr, v: u32) -> InstrType {
+    use self::j::*;
+    InstrType::J{ var: j, rd: rd(v), offset: offset(v) }
+  }
 }
 
 pub(crate) fn decode(instr: u32) -> InstrType {
+  let v = instr; // just for aliasing
   match opcode(instr) {
-    0b1101111 => InstrType::J(JInstr::JAL),
-    0b0110111 => InstrType::U(UInstr::LUI),
-    0b0010111 => InstrType::U(UInstr::AUIPC),
-    0b1100111 if i::funct3(instr) == 0 => InstrType::I(IInstr::JALR),
+    0b1101111 => InstrType::j(JInstr::JAL, v),
+    0b0110111 => InstrType::u(UInstr::LUI, v),
+    0b0010111 => InstrType::u(UInstr::AUIPC, v),
+    0b1100111 if i::funct3(instr) == 0 => InstrType::i(IInstr::JALR, v),
     0b1100011 => match s::funct3(instr) {
-      0b000 => InstrType::B(BInstr::BEQ),
-      0b001 => InstrType::B(BInstr::BNE),
-      0b100 => InstrType::B(BInstr::BLT),
-      0b101 => InstrType::B(BInstr::BGE),
-      0b110 => InstrType::B(BInstr::BLTU),
-      0b111 => InstrType::B(BInstr::BGEU),
+      0b000 => InstrType::b(BInstr::BEQ, v),
+      0b001 => InstrType::b(BInstr::BNE, v),
+      0b100 => InstrType::b(BInstr::BLT, v),
+      0b101 => InstrType::b(BInstr::BGE, v),
+      0b110 => InstrType::b(BInstr::BLTU, v),
+      0b111 => InstrType::b(BInstr::BGEU, v),
       funct3 => panic!("Unexpected funct3 for opcode 0b1100011 : {}", funct3),
     },
     0b0000011 => match i::funct3(instr) {
-      0b000 => InstrType::I(IInstr::LB),
-      0b001 => InstrType::I(IInstr::LH),
-      0b010 => InstrType::I(IInstr::LW),
-      0b100 => InstrType::I(IInstr::LBU),
-      0b101 => InstrType::I(IInstr::LHU),
+      0b000 => InstrType::i(IInstr::LB, v),
+      0b001 => InstrType::i(IInstr::LH, v),
+      0b010 => InstrType::i(IInstr::LW, v),
+      0b100 => InstrType::i(IInstr::LBU, v),
+      0b101 => InstrType::i(IInstr::LHU, v),
       funct3 => panic!("Unexpected funct3 for opcode 0b0000011: {}", funct3),
     },
     0b0100011 => match s::funct3(instr) {
-      0b000 => InstrType::S(SInstr::SB),
-      0b001 => InstrType::S(SInstr::SH),
-      0b010 => InstrType::S(SInstr::SW),
+      0b000 => InstrType::s(SInstr::SB, v),
+      0b001 => InstrType::s(SInstr::SH, v),
+      0b010 => InstrType::s(SInstr::SW, v),
       funct3 => panic!("Unexpected funct3 for opcode 0b0100011: {}", funct3),
     },
     0b0010011 => match i::funct3(instr) {
-      0b000 => InstrType::I(IInstr::ADDI),
-      0b010 => InstrType::I(IInstr::SLTI),
-      0b011 => InstrType::I(IInstr::SLTIU),
-      0b100 => InstrType::I(IInstr::XORI),
-      0b110 => InstrType::I(IInstr::ORI),
-      0b111 => InstrType::I(IInstr::ANDI),
-      0b001 => InstrType::R(RInstr::SLLI),
-      0b101 if r::funct7(instr) == 0 => InstrType::R(RInstr::SRLI),
-      0b101 => InstrType::R(RInstr::SRAI),
+      0b000 => InstrType::i(IInstr::ADDI, v),
+      0b010 => InstrType::i(IInstr::SLTI, v),
+      0b011 => InstrType::i(IInstr::SLTIU, v),
+      0b100 => InstrType::i(IInstr::XORI, v),
+      0b110 => InstrType::i(IInstr::ORI, v),
+      0b111 => InstrType::i(IInstr::ANDI, v),
+      0b001 => InstrType::r(RInstr::SLLI, v),
+      0b101 if r::funct7(instr) == 0 => InstrType::r(RInstr::SRLI, v),
+      0b101 => InstrType::r(RInstr::SRAI, v),
       funct3 => panic!("Unexpected funct3 for opcode 0b0010111: {}", funct3),
     },
     0b0110011 => match (r::funct7(instr), r::funct3(instr)) {
-      (0, 0b000) => InstrType::R(RInstr::ADD),
-      (32, 0b000)=> InstrType::R(RInstr::SUB),
-      (0, 0b001) => InstrType::R(RInstr::SLL),
-      (0, 0b010) => InstrType::R(RInstr::SLT),
-      (0, 0b011) => InstrType::R(RInstr::SLTU),
-      (0, 0b100) => InstrType::R(RInstr::XOR),
-      (0, 0b101) => InstrType::R(RInstr::SRL),
-      (32, 0b101) => InstrType::R(RInstr::SRA),
-      (0, 0b110) => InstrType::R(RInstr::OR),
-      (0, 0b111) => InstrType::R(RInstr::AND),
+      (0, 0b000) => InstrType::r(RInstr::ADD, v),
+      (32, 0b000)=> InstrType::r(RInstr::SUB, v),
+      (0, 0b001) => InstrType::r(RInstr::SLL, v),
+      (0, 0b010) => InstrType::r(RInstr::SLT, v),
+      (0, 0b011) => InstrType::r(RInstr::SLTU, v),
+      (0, 0b100) => InstrType::r(RInstr::XOR, v),
+      (0, 0b101) => InstrType::r(RInstr::SRL, v),
+      (32, 0b101) => InstrType::r(RInstr::SRA, v),
+      (0, 0b110) => InstrType::r(RInstr::OR, v),
+      (0, 0b111) => InstrType::r(RInstr::AND, v),
       // Multiplication extension
       //(1, 0b000) => InstrType::R(RInstr::MUL),
       //(1, 0b001) => InstrType::R(RInstr::MULH),
@@ -108,16 +143,16 @@ pub(crate) fn decode(instr: u32) -> InstrType {
     },
     0b1110011 => match i::funct3(instr) {
       0b000 => match i::zx_imm(instr) {
-        0 => InstrType::I(IInstr::ECALL),
-        1 => InstrType::I(IInstr::EBREAK),
+        0 => InstrType::i(IInstr::ECALL, v),
+        1 => InstrType::i(IInstr::EBREAK, v),
         v => panic!("Unexpected immediate for opcode: 0b1110011, funct3: 0b000, {}", v),
       },
-      0b001 => InstrType::I(IInstr::CSRRW),
-      0b010 => InstrType::I(IInstr::CSRRS),
-      0b011 => InstrType::I(IInstr::CSRRC),
-      0b101 => InstrType::I(IInstr::CSRRW),
-      0b110 => InstrType::I(IInstr::CSRRS),
-      0b111 => InstrType::I(IInstr::CSRRC),
+      0b001 => InstrType::i(IInstr::CSRRW, v),
+      0b010 => InstrType::i(IInstr::CSRRS, v),
+      0b011 => InstrType::i(IInstr::CSRRC, v),
+      0b101 => InstrType::i(IInstr::CSRRW, v),
+      0b110 => InstrType::i(IInstr::CSRRS, v),
+      0b111 => InstrType::i(IInstr::CSRRC, v),
       v => panic!("Unexpected funct3 for opcode: 0b1110011, funct3: {}", v),
     },
     v => panic!("Unexpected Opcode {:b} for instr {:b}", v, instr),
