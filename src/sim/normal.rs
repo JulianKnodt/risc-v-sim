@@ -1,9 +1,7 @@
 use crate::mem;
-use crate::program_state::{ProgramState, Status, Exceptions};
-use crate::reg::{RegData, RegisterEntry};
+use crate::program_state::{ProgramState, Status, Exceptions, HALT};
+use crate::reg::{RegData};
 use crate::instr::{self, InstrType};
-
-pub(crate) const HALT: u32 = 0xfeedfeed;
 
 pub fn execute<T : RegData>(mut ps: ProgramState<T>) -> Result<ProgramState<T>, ()> {
   while ps.status == Status::Running { ps = run_instr(ps); }
@@ -27,7 +25,7 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
   match instr {
     instr::InstrType::R{ var: r, rs1, rs2, rd } => {
       use crate::instr::RInstr;
-      ps.regs[rd] = RegisterEntry::Valid(match r {
+      let result = match r {
         RInstr::ADD => T::from_signed(ps.sx(ps.regs[rs1]) + ps.sx(ps.regs[rs1])),
         RInstr::SUB => T::from_signed(ps.sx(ps.regs[rs1]) - ps.sx(ps.regs[rs2])),
         RInstr::SLL => ps.zx(ps.regs[rs1]) << ps.regs[rs2].v(),
@@ -41,12 +39,13 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
         RInstr::SLLI => ps.zx(ps.regs[rs1]) << T::from(rs2),
         RInstr::SRLI => ps.zx(ps.regs[rs1]) >> T::from(rs2),
         RInstr::SRAI => T::from_signed(ps.sx(ps.regs[rs1]) >> T::from(rs2).to_signed()),
-      });
+      };
+      ps.regs[rd].assign(result);
     },
     InstrType::I{ var: i, rs1, rd, sx_imm: sx, zx_imm: zx } => {
       use crate::instr::IInstr;
       let (sx_imm, zx_imm) = (T::Signed::from(sx), T::from(zx));
-      ps.regs[rd] = RegisterEntry::Valid(match i {
+      let result = match i {
         IInstr::ADDI => T::from_signed(ps.sx(ps.regs[rs1]) + sx_imm),
         IInstr::SLTI => if ps.sx(ps.regs[rs1]) < sx_imm { T::one() } else { T::zero() },
         IInstr::SLTIU => if ps.zx(ps.regs[rs1]) < zx_imm { T::one() } else { T::zero() },
@@ -54,9 +53,11 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
         IInstr::ORI => ps.zx(ps.regs[rs1]) | zx_imm,
         IInstr::ANDI => ps.zx(ps.regs[rs1]) & zx_imm,
         IInstr::JALR => {
-          let result = ps.regs.pc;
-          ps.regs.pc = T::from_signed((ps.sx(ps.regs[rs1]) + sx_imm) & T::Signed::from(-2));
-          result
+          let curr_pc = ps.regs.pc.v();
+          ps.regs.pc.assign(
+            T::from_signed((ps.sx(ps.regs[rs1]) + sx_imm) & T::Signed::from(-2))
+          );
+          curr_pc
         },
         IInstr::LW =>
           ps.mem.read(T::from_signed(ps.sx(ps.regs[rs1])+sx_imm).as_usize(), mem::Size::WORD)
@@ -78,7 +79,8 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
             .map(|s| T::from_signed(s))
             .unwrap_or_else(|_| ps.regs[rd].v()),
         v => panic!("Unimplemented {:?}", v),
-      });
+      };
+      ps.regs[rd].assign(result);
     },
     InstrType::S{ var: s, rs1, rs2, imm } => {
       use crate::instr::SInstr;
@@ -104,29 +106,31 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
         BInstr::BGEU => ps.zx(ps.regs[rs1]) >= ps.zx(ps.regs[rs2]),
       };
       if branch {
-        ps.regs.pc = ps.regs.pc.offset(T::Signed::from(imm))
-          - T::from(mem::WORD_SIZE as u32);
+        ps.regs.pc.assign(ps.regs.pc.v().offset(T::Signed::from(imm))
+          - T::from(mem::WORD_SIZE as u32));
       };
     },
     InstrType::U{ var: u, rd, imm } => {
       use crate::instr::UInstr;
-      ps.regs[rd] = RegisterEntry::Valid(match u {
+      let result = match u {
         UInstr::LUI => T::from(imm),
-        UInstr::AUIPC => T::from(imm) + ps.regs.pc,
-      });
+        UInstr::AUIPC => T::from(imm) + ps.regs.pc.v(),
+      };
+      ps.regs[rd].assign(result);
     },
     InstrType::J{ var: j, rd, offset } => {
       use crate::instr::JInstr;
       match j {
         JInstr::JAL => {
-          ps.regs[rd] = RegisterEntry::Valid(ps.regs.pc);
-          ps.regs.pc = ps.regs.pc.offset(T::Signed::from(offset))
-            - T::from(mem::WORD_SIZE as u32);
+          let pc = ps.regs.pc.v();
+          ps.regs[rd].assign(pc);
+          ps.regs.pc.assign(pc.offset(T::Signed::from(offset))
+            - T::from(mem::WORD_SIZE as u32))
         },
       };
     },
   };
-  ps.regs[0] = RegisterEntry::Valid(T::zero());
+  ps.regs[0].assign(T::zero());
   ps.regs.inc_pc();
   return ps;
 }

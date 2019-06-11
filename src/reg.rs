@@ -1,8 +1,10 @@
 extern crate num;
 use num::{Zero, One};
 use std::ops::{Add, AddAssign, Sub, Shr, Shl, BitAnd, BitOr, BitXor};
+use std::mem::transmute;
+use crate::fixed_size_deque::FixedSizeDeque;
 
-pub trait RegData: Zero + One + Add<Output=Self> + AddAssign + Clone + Copy + From<u32>
+pub trait RegData: Zero + One + Add<Output=Self> + AddAssign + Clone + Copy + Default + From<u32>
   + From<u8> + Sub<Output=Self> + std::fmt::Debug + PartialEq + PartialOrd + Shl<Output=Self>
   + Shr<Output=Self> + BitAnd<Output=Self> + BitOr<Output=Self> + BitXor<Output=Self>
   + std::fmt::LowerHex {
@@ -30,18 +32,13 @@ pub trait RegData: Zero + One + Add<Output=Self> + AddAssign + Clone + Copy + Fr
 impl RegData for u32 {
   type Signed = i32;
   fn offset(&self, s: i32) -> u32 {
-    if s < 0 { self - (s.abs() as u32) }
-    else { self + (s as u32) }
+    if s < 0 { self - (s.abs() as u32) } else { self + (s as u32) }
   }
   fn as_usize(&self) -> usize { *self as usize }
   #[inline]
-  fn to_signed(self) -> Self::Signed {
-    unsafe { std::mem::transmute::<Self, Self::Signed>(self) }
-  }
+  fn to_signed(self) -> Self::Signed { unsafe { transmute::<Self, Self::Signed>(self) } }
   #[inline]
-  fn from_signed(v: Self::Signed) -> Self {
-    unsafe { std::mem::transmute::<Self::Signed, Self>(v) }
-  }
+  fn from_signed(v: Self::Signed) -> Self { unsafe { transmute::<Self::Signed, Self>(v) } }
 
   const BYTE_SIZE: usize = 4;
   fn to_le_bytes(&self) -> Box<[u8]> { Box::new(u32::to_le_bytes(*self)) }
@@ -59,19 +56,9 @@ impl RegData for u64 {
   }
   fn as_usize(&self) -> usize { *self as usize }
   #[inline]
-  fn to_signed(self) -> Self::Signed {
-    unsafe {
-      std::mem::transmute::<Self, Self::Signed>(self)
-    }
-  }
+  fn to_signed(self) -> Self::Signed { unsafe { transmute::<Self, Self::Signed>(self) } }
   #[inline]
-  fn from_signed(v: Self::Signed) -> Self {
-    unsafe {
-      std::mem::transmute::<Self::Signed, Self>(v)
-    }
-  }
-
-
+  fn from_signed(v: Self::Signed) -> Self { unsafe { transmute::<Self::Signed, Self>(v) } }
 
   const BYTE_SIZE: usize = 8;
   fn to_le_bytes(&self) -> Box<[u8]> { Box::new(u64::to_le_bytes(*self)) }
@@ -82,58 +69,46 @@ impl RegData for u64 {
   }
 }
 
-//pub trait FpRegData: Zero + Add<Output=Self> {}
-//impl FpRegData for f32 {}
-//impl FpRegData for f64 {}
-
 #[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
-pub enum RegisterEntry<T : RegData> {
-  // most up to date entry
-  Valid(T),
-  // updated but not written back
-  Dirty{ curr: T, new: T },
-}
+pub struct RegisterEntry<T : RegData>(FixedSizeDeque<T>);
 
 impl <T : RegData> RegisterEntry<T> {
-  pub fn is_valid(&self) -> bool {
-    match self {
-      RegisterEntry::Valid(_) => true,
-      RegisterEntry::Dirty{ .. } => false,
-    }
+  pub fn as_usize(&self) -> usize { self.v().as_usize() }
+  pub fn v(&self) -> T { self.0.back().unwrap() }
+  pub fn write(&mut self, new: T) { assert!(self.0.push_back(new)) }
+  pub fn writeback(&mut self) { self.0.pop_front(); }
+  pub fn assign(&mut self, v: T) {
+    self.0.clear();
+    self.0.push_front(v);
   }
-  pub fn v(&self) -> T {
-    *match self {
-      RegisterEntry::Valid(v) => v,
-      RegisterEntry::Dirty{ curr: v, .. } => v,
-    }
-  }
-  pub fn invalidate(self, new: T) -> RegisterEntry<T> {
-    if let RegisterEntry::Valid(v) = self {
-      RegisterEntry::Dirty{ curr: v, new: new }
-    } else { self }
-  }
+  // reset on error to oldest value still in pipeline
+  pub fn reset(&mut self) { self.0.truncate(1) }
 }
 
 impl <T : RegData> Default for RegisterEntry<T> {
-  fn default() -> Self { RegisterEntry::Valid(T::zero()) }
+  fn default() -> Self {
+    let mut empty = FixedSizeDeque::new();
+    empty.push_back(T::zero());
+    RegisterEntry(empty)
+  }
 }
 
 #[derive(PartialEq, Debug)]
 pub struct Register<T : RegData> {
   pub(crate) data: Vec<RegisterEntry<T>>,
-  pub pc: T,
+  pub pc: RegisterEntry<T>,
 }
 
 impl <T:RegData>Register<T> {
   pub fn new(num_regs: usize) -> Register<T> {
     Register{
       data: vec![RegisterEntry::default(); num_regs],
-      pc: T::zero(),
+      pc: RegisterEntry::default(),
     }
   }
 
   pub fn inc_pc(&mut self) {
-    self.pc += T::from(crate::mem::WORD_SIZE as u32);
+    // self.pc.0.iter_mut().for_each(|v| *v += T::from(crate::mem::WORD_SIZE as u32));
   }
 }
 

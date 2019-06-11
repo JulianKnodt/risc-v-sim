@@ -27,4 +27,5 @@ impl <T : RegData> ProgramState<T> {
   // Zero Extend
   pub fn zx(&self, reg: RegisterEntry<T>) -> T { reg.v() }
 }
+pub const HALT: u32 = 0xfeedfeed;
 
