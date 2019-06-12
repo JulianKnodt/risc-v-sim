@@ -5,17 +5,12 @@ use crate::instr::{self, InstrType};
 
 pub fn execute<T : RegData>(mut ps: ProgramState<T>) -> Result<ProgramState<T>, ()> {
   while ps.status == Status::Running { ps = run_instr(ps); }
-  ps.regs.data.iter().enumerate().for_each(|(i,r)| {
-    if r.v() != T::zero() {
-      println!("[x{}: {:x}]", i, r.v())
-    }
-  });
   Ok(ps)
 }
 
 fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
-  let raw = ps.mem.read(ps.regs.pc.as_usize(), mem::Size::WORD)
-    .unwrap_or_else(|_| panic!("Failed to read instr at {:?}", ps.regs.pc));
+  let raw = ps.mem.read(ps.regs.pc().as_usize(), mem::Size::WORD)
+    .unwrap_or_else(|_| panic!("Failed to read instr at {:?}", ps.regs.pc()));
   if raw == HALT {
     ps.status = Status::Done;
     return ps
@@ -28,19 +23,19 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
       let result = match r {
         RInstr::ADD => T::from_signed(ps.sx(ps.regs[rs1]) + ps.sx(ps.regs[rs1])),
         RInstr::SUB => T::from_signed(ps.sx(ps.regs[rs1]) - ps.sx(ps.regs[rs2])),
-        RInstr::SLL => ps.zx(ps.regs[rs1]) << ps.regs[rs2].v(),
+        RInstr::SLL => ps.zx(ps.regs[rs1]) << ps.regs[rs2],
         RInstr::SLT => if ps.sx(ps.regs[rs1]) < ps.sx(ps.regs[rs2]) {T::one()} else {T::zero()},
         RInstr::SLTU => if ps.zx(ps.regs[rs1]) < ps.zx(ps.regs[rs2]) {T::one()} else {T::zero()},
         RInstr::XOR => ps.zx(ps.regs[rs1]) ^ ps.zx(ps.regs[rs2]),
-        RInstr::SRL => ps.zx(ps.regs[rs1]) >> ps.regs[rs2].v(),
-        RInstr::SRA => T::from_signed(ps.sx(ps.regs[rs1]) >> ps.regs[rs2].v().to_signed()),
+        RInstr::SRL => ps.zx(ps.regs[rs1]) >> ps.regs[rs2],
+        RInstr::SRA => T::from_signed(ps.sx(ps.regs[rs1]) >> ps.regs[rs2].to_signed()),
         RInstr::OR => ps.zx(ps.regs[rs1]) | ps.zx(ps.regs[rs2]),
         RInstr::AND => ps.zx(ps.regs[rs1]) & ps.zx(ps.regs[rs2]),
         RInstr::SLLI => ps.zx(ps.regs[rs1]) << T::from(rs2),
         RInstr::SRLI => ps.zx(ps.regs[rs1]) >> T::from(rs2),
         RInstr::SRAI => T::from_signed(ps.sx(ps.regs[rs1]) >> T::from(rs2).to_signed()),
       };
-      ps.regs[rd].assign(result);
+      ps.regs.assign(rd, result);
     },
     InstrType::I{ var: i, rs1, rd, sx_imm: sx, zx_imm: zx } => {
       use crate::instr::IInstr;
@@ -53,34 +48,34 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
         IInstr::ORI => ps.zx(ps.regs[rs1]) | zx_imm,
         IInstr::ANDI => ps.zx(ps.regs[rs1]) & zx_imm,
         IInstr::JALR => {
-          let curr_pc = ps.regs.pc.v();
-          ps.regs.pc.assign(
+          let curr_pc = ps.regs.pc();
+          ps.regs.assign_pc(
             T::from_signed((ps.sx(ps.regs[rs1]) + sx_imm) & T::Signed::from(-2))
           );
           curr_pc
         },
         IInstr::LW =>
           ps.mem.read(T::from_signed(ps.sx(ps.regs[rs1])+sx_imm).as_usize(), mem::Size::WORD)
-            .unwrap_or_else(|_| ps.regs[rd].v()),
+            .unwrap_or_else(|_| ps.regs[rd]),
         IInstr::LH =>
           ps.mem.read(T::from_signed(ps.sx(ps.regs[rs1])+sx_imm).as_usize(), mem::Size::HALF)
-            .unwrap_or_else(|_| ps.regs[rd].v()),
+            .unwrap_or_else(|_| ps.regs[rd]),
         IInstr::LB =>
           ps.mem.read(T::from_signed(ps.sx(ps.regs[rs1])+sx_imm).as_usize(), mem::Size::BYTE)
-            .unwrap_or_else(|_| ps.regs[rd].v()),
+            .unwrap_or_else(|_| ps.regs[rd]),
         IInstr::LHU =>
           ps.mem.read_signed::<T>(T::from_signed(ps.sx(ps.regs[rs1])+sx_imm)
             .as_usize(), mem::Size::HALF)
             .map(|s| T::from_signed(s))
-            .unwrap_or_else(|_| ps.regs[rd].v()),
+            .unwrap_or_else(|_| ps.regs[rd]),
         IInstr::LBU =>
           ps.mem.read_signed::<T>(T::from_signed(ps.sx(ps.regs[rs1])+sx_imm)
           .as_usize(), mem::Size::BYTE)
             .map(|s| T::from_signed(s))
-            .unwrap_or_else(|_| ps.regs[rd].v()),
+            .unwrap_or_else(|_| ps.regs[rd]),
         v => panic!("Unimplemented {:?}", v),
       };
-      ps.regs[rd].assign(result);
+      ps.regs.assign(rd, result);
     },
     InstrType::S{ var: s, rs1, rs2, imm } => {
       use crate::instr::SInstr;
@@ -89,8 +84,8 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
         SInstr::SH => mem::Size::HALF,
         SInstr::SW => mem::Size::WORD,
       };
-      if let Err(e) = ps.mem.write((ps.regs[rs1].v() + T::from(imm)).as_usize(),
-        ps.regs[rs2].v(), size) {
+      if let Err(e) = ps.mem.write((ps.regs[rs1] + T::from(imm)).as_usize(),
+        ps.regs[rs2], size) {
           println!("{:?}", e);
           ps.status = Status::Exception(Exceptions::Mem);
       };
@@ -106,7 +101,7 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
         BInstr::BGEU => ps.zx(ps.regs[rs1]) >= ps.zx(ps.regs[rs2]),
       };
       if branch {
-        ps.regs.pc.assign(ps.regs.pc.v().offset(T::Signed::from(imm))
+        ps.regs.assign_pc(ps.regs.pc().offset(T::Signed::from(imm))
           - T::from(mem::WORD_SIZE as u32));
       };
     },
@@ -114,23 +109,22 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
       use crate::instr::UInstr;
       let result = match u {
         UInstr::LUI => T::from(imm),
-        UInstr::AUIPC => T::from(imm) + ps.regs.pc.v(),
+        UInstr::AUIPC => T::from(imm) + ps.regs.pc(),
       };
-      ps.regs[rd].assign(result);
+      ps.regs.assign(rd, result);
     },
     InstrType::J{ var: j, rd, offset } => {
       use crate::instr::JInstr;
       match j {
         JInstr::JAL => {
-          let pc = ps.regs.pc.v();
-          ps.regs[rd].assign(pc);
-          ps.regs.pc.assign(pc.offset(T::Signed::from(offset))
+          let pc = ps.regs.pc();
+          ps.regs.assign(rd, pc);
+          ps.regs.assign_pc(pc.offset(T::Signed::from(offset))
             - T::from(mem::WORD_SIZE as u32))
         },
       };
     },
   };
-  ps.regs[0].assign(T::zero());
   ps.regs.inc_pc();
   return ps;
 }

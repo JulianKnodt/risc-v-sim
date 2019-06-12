@@ -56,32 +56,32 @@ impl <T: RegData>ProgramState<T> {
       Phases::ID => {
         match instr {
           InstrType::I{ var: IInstr::JALR, rs1, rd, sx_imm, .. } => {
-            let curr_pc = self.regs.pc.v();
+            let curr_pc = self.regs.pc();
             let sx = T::Signed::from(sx_imm);
-            self.regs.pc.write(
+            self.regs.assign_pc(
               T::from_signed(self.sx(self.regs[rs1])+sx & T::Signed::from(-2))
             );
-            self.regs[rd].write(curr_pc);
+            self.regs.assign(rd, curr_pc);
           },
           InstrType::B{ var, rs1, rs2, imm } => {
             let branch = match var {
-              BInstr::BEQ => self.regs[rs1].v() == self.regs[rs2].v(),
-              BInstr::BNE => self.regs[rs1].v() != self.regs[rs2].v(),
+              BInstr::BEQ => self.regs[rs1] == self.regs[rs2],
+              BInstr::BNE => self.regs[rs1] != self.regs[rs2],
               BInstr::BLT => self.sx(self.regs[rs1]) < self.sx(self.regs[rs2]),
               BInstr::BGE => self.sx(self.regs[rs1]) >= self.sx(self.regs[rs2]),
               BInstr::BLTU => self.zx(self.regs[rs1]) < self.zx(self.regs[rs2]),
               BInstr::BGEU => self.zx(self.regs[rs1]) >= self.zx(self.regs[rs2]),
             };
             if branch {
-              self.regs.pc.write(self.regs.pc.v().offset(T::Signed::from(imm))
+              self.regs.assign_pc(self.regs.pc().offset(T::Signed::from(imm))
                 - T::from(mem::WORD_SIZE as u32));
             };
           },
           InstrType::J{ var, rd, offset } => match var {
             JInstr::JAL => {
-              let curr_pc = self.regs.pc.v();
-              self.regs[rd].write(curr_pc);
-              self.regs.pc.write(self.regs.pc.v().offset(T::Signed::from(offset))
+              let curr_pc = self.regs.pc();
+              self.regs.assign(rd, curr_pc);
+              self.regs.assign_pc(self.regs.pc().offset(T::Signed::from(offset))
                 - T::from(mem::WORD_SIZE as u32));
             },
           },
@@ -95,24 +95,24 @@ impl <T: RegData>ProgramState<T> {
         unimplemented!();
       },
       Phases::WB => match instr {
-        InstrType::R{ rd, .. } => self.regs[rd].writeback(),
+        InstrType::R{ rd, .. } => assert!(self.regs.writeback()),
         InstrType::I{ var, rd, .. } => {
-          self.regs[rd].writeback();
-          if let IInstr::JALR = var { self.regs.pc.writeback() }
+          assert!(self.regs.writeback());
+          if let IInstr::JALR = var { assert!(self.regs.pc_writeback()) }
         },
         InstrType::S{ .. } => unimplemented!(), // TODO actually write to memory here
-        InstrType::U{ rd, .. } => self.regs[rd].writeback(),
+        InstrType::U{ rd, .. } => assert!(self.regs.writeback()),
         InstrType::J{ rd, .. } => {
-          self.regs[rd].writeback();
-          self.regs.pc.writeback()
+          assert!(self.regs.writeback());
+          assert!(self.regs.pc_writeback());
         },
-        InstrType::B{ .. } => self.regs.pc.writeback(),
+        InstrType::B{ .. } => assert!(self.regs.pc_writeback()),
       },
     };
     self
   }
   fn run_if_phase(&mut self, p: &mut Pipeline) {
-    p[Phases::IF] = Ok(self.mem.read(self.regs.pc.as_usize(), mem::Size::WORD)
+    p[Phases::IF] = Ok(self.mem.read(self.regs.pc().as_usize(), mem::Size::WORD)
       .expect("Failed to read instruction"));
   }
 }

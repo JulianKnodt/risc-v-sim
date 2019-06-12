@@ -1,5 +1,5 @@
 use crate::mem;
-use crate::reg::{Register, RegData, RegisterEntry};
+use crate::reg::{Register, RegData};
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Exceptions {
@@ -23,9 +23,9 @@ pub struct ProgramState<T : RegData> {
 
 impl <T : RegData> ProgramState<T> {
   // Sign Extend
-  pub fn sx(&self, reg: RegisterEntry<T>) -> T::Signed { reg.v().to_signed() }
+  pub fn sx(&self, reg: T) -> T::Signed { reg.to_signed() }
   // Zero Extend
-  pub fn zx(&self, reg: RegisterEntry<T>) -> T { reg.v() }
+  pub fn zx(&self, reg: T) -> T { reg }
 }
 pub const HALT: u32 = 0xfeedfeed;
 

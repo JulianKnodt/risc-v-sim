@@ -1,8 +1,8 @@
 extern crate num;
 use num::{Zero, One};
-use std::ops::{Add, AddAssign, Sub, Shr, Shl, BitAnd, BitOr, BitXor};
+use std::ops::{Add, AddAssign, Sub, Shr, Shl, BitAnd, BitOr, BitXor, Index};
 use std::mem::transmute;
-use crate::fixed_size_deque::FixedSizeDeque;
+use std::collections::VecDeque;
 
 pub trait RegData: Zero + One + Add<Output=Self> + AddAssign + Clone + Copy + Default + From<u32>
   + From<u8> + Sub<Output=Self> + std::fmt::Debug + PartialEq + PartialOrd + Shl<Output=Self>
@@ -69,59 +69,51 @@ impl RegData for u64 {
   }
 }
 
-#[derive(Copy, Clone, PartialEq, PartialOrd, Debug)]
-pub struct RegisterEntry<T : RegData>(FixedSizeDeque<T>);
-
-impl <T : RegData> RegisterEntry<T> {
-  pub fn as_usize(&self) -> usize { self.v().as_usize() }
-  pub fn v(&self) -> T { self.0.back().unwrap() }
-  pub fn write(&mut self, new: T) { assert!(self.0.push_back(new)) }
-  pub fn writeback(&mut self) { self.0.pop_front(); }
-  pub fn assign(&mut self, v: T) {
-    self.0.clear();
-    self.0.push_front(v);
-  }
-  // reset on error to oldest value still in pipeline
-  pub fn reset(&mut self) { self.0.truncate(1) }
-}
-
-impl <T : RegData> Default for RegisterEntry<T> {
-  fn default() -> Self {
-    let mut empty = FixedSizeDeque::new();
-    empty.push_back(T::zero());
-    RegisterEntry(empty)
-  }
-}
-
 #[derive(PartialEq, Debug)]
 pub struct Register<T : RegData> {
-  pub(crate) data: Vec<RegisterEntry<T>>,
-  pub pc: RegisterEntry<T>,
+  data: Vec<T>,
+  unwritten: VecDeque<(usize, T)>,
+  pc: VecDeque<T>,
 }
 
 impl <T:RegData>Register<T> {
   pub fn new(num_regs: usize) -> Register<T> {
+    let mut pc = VecDeque::new();
+    pc.push_front(T::zero());
     Register{
-      data: vec![RegisterEntry::default(); num_regs],
-      pc: RegisterEntry::default(),
+      data: vec![T::zero(); num_regs],
+      unwritten: VecDeque::new(),
+      pc: pc,
     }
   }
 
+  pub fn pc(&self) -> T { *self.pc.back().unwrap() }
   pub fn inc_pc(&mut self) {
-    // self.pc.0.iter_mut().for_each(|v| *v += T::from(crate::mem::WORD_SIZE as u32));
+    let v = self.pc.back_mut().unwrap();
+    *v = *v + T::from(crate::mem::WORD_SIZE as u32);
+  }
+  pub fn assign(&mut self, rd: u32, v: T) {
+    if rd == 0 { self.data[0] = T::zero() }
+    else { self.unwritten.push_back((rd as usize, v)) }
+  }
+  pub fn writeback(&mut self) -> bool {
+    if self.unwritten.len() == 1 { return false };
+    let (rd, v) = self.unwritten.pop_front().unwrap();
+    self.data[rd] = v;
+    true
+  }
+  pub fn assign_pc(&mut self, v: T) { self.pc.push_back(v) }
+  pub fn pc_writeback(&mut self) -> bool {
+    if self.pc.len() == 1 { return false }
+    self.pc.pop_front();
+    true
   }
 }
 
-use std::ops::{Index, IndexMut};
-impl <T : RegData> Index<u32> for Register<T> {
-  type Output = RegisterEntry<T>;
-  fn index(&self, i: u32) -> &RegisterEntry<T> {
-    &self.data[i as usize]
-  }
-}
-
-impl <T : RegData> IndexMut<u32> for Register<T> {
-  fn index_mut(&mut self, i: u32) -> &mut RegisterEntry<T> {
-    &mut self.data[i as usize]
+impl <T: RegData>Index<u32> for Register<T> {
+  type Output = T;
+  fn index(&self, i: u32) -> &T {
+    let i = i as usize;
+    self.unwritten.iter().find(|&v| v.0 == i).map(|v| &v.1).unwrap_or(&self.data[i])
   }
 }
