@@ -125,6 +125,8 @@ fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
       };
     },
   };
+  ps.regs.writeback();
+  ps.regs.writeback_pc();
   ps.regs.inc_pc();
   return ps;
 }
