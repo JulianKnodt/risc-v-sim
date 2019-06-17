@@ -16,7 +16,7 @@ pub enum Status {
 #[derive(PartialEq, Debug)]
 pub struct ProgramState<T : RegData> {
   pub regs: Register<T>,
-  pub mem: mem::Memory,
+  pub mem: mem::Memory<T>,
   pub status: Status,
 }
 
@@ -26,6 +26,6 @@ impl <T : RegData> ProgramState<T> {
   pub fn sx(&self, reg: T) -> T::Signed { reg.to_signed() }
   // Zero Extend
   pub fn zx(&self, reg: T) -> T { reg }
+  pub fn halt() -> T { T::from(0xfeedfeedu32) }
 }
-pub const HALT: u32 = 0xfeedfeed;
 

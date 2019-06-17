@@ -3,16 +3,17 @@ use num::{Zero, One};
 use std::ops::{Add, AddAssign, Sub, Shr, Shl, BitAnd, BitOr, BitXor, Index};
 use std::mem::transmute;
 use std::collections::VecDeque;
+use std::fmt::{Display, Debug, LowerHex};
 
 pub trait RegData: Zero + One + Add<Output=Self> + AddAssign + Clone + Copy + Default + From<u32>
-  + From<u8> + Sub<Output=Self> + std::fmt::Debug + PartialEq + PartialOrd + Shl<Output=Self>
+  + From<u8> + Sub<Output=Self> + Display + PartialEq + PartialOrd + Shl<Output=Self>
   + Shr<Output=Self> + BitAnd<Output=Self> + BitOr<Output=Self> + BitXor<Output=Self>
-  + std::fmt::LowerHex {
+  + LowerHex + Debug {
 
   // Corresponding signed type
   type Signed: Clone + Copy + From<i32> + Add<Output=Self::Signed>
     + Sub<Output=Self::Signed> + PartialEq + PartialOrd + Shl<Output=Self::Signed>
-    + Shr<Output=Self::Signed> + BitAnd<Output=Self::Signed>;
+    + Shr<Output=Self::Signed> + BitAnd<Output=Self::Signed> + Display;
 
   fn to_signed(self) -> Self::Signed;
   fn from_signed(v: Self::Signed) -> Self;
@@ -73,41 +74,44 @@ impl RegData for u64 {
 pub struct Register<T : RegData> {
   data: Vec<T>,
   unwritten: VecDeque<(usize, T)>,
-  pc: VecDeque<T>,
+  pc: T,
+}
+
+impl <T : RegData> std::fmt::Display for Register<T> {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    for i in 0..self.data.len() {
+      writeln!(f, "[ x{:02}: {:08x} | {} ]", i, self.data[i], self.data[i].to_signed())?;
+    }
+    writeln!(f, "[ pc : {:08x} ]", self.pc())
+  }
 }
 
 impl <T:RegData>Register<T> {
   pub fn new(num_regs: usize) -> Register<T> {
-    let mut pc = VecDeque::new();
-    pc.push_front(T::zero());
     Register{
       data: vec![T::zero(); num_regs],
       unwritten: VecDeque::new(),
-      pc: pc,
+      pc: T::zero(),
     }
   }
 
-  pub fn pc(&self) -> T { *self.pc.back().unwrap() }
+  pub fn pc(&self) -> T { self.pc }
   pub fn inc_pc(&mut self) {
-    let v = self.pc.back_mut().unwrap();
-    *v = *v + T::from(crate::mem::WORD_SIZE as u32);
+    self.pc = self.pc + T::from(crate::mem::WORD_SIZE as u32);
   }
+  pub fn force_assign(&mut self, rd: u32, v: T) { self.data[rd as usize] = v }
   pub fn assign(&mut self, rd: u32, v: T) {
     if rd == 0 { self.data[0] = T::zero() }
     else { self.unwritten.push_back((rd as usize, v)) }
   }
-  pub fn writeback(&mut self) -> bool {
-    if self.unwritten.len() == 1 { return false };
-    let (rd, v) = self.unwritten.pop_front().unwrap();
+  pub fn writeback(&mut self, rd: u32) -> bool {
+    if rd == 0 { return true }
+    else if self.unwritten.len() == 0 { return false };
+    let (rd, v) = self.unwritten.pop_front().expect("Failed writeback");
     self.data[rd] = v;
     true
   }
-  pub fn assign_pc(&mut self, v: T) { self.pc.push_back(v) }
-  pub fn pc_writeback(&mut self) -> bool {
-    if self.pc.len() == 1 { return false }
-    self.pc.pop_front();
-    true
-  }
+  pub fn assign_pc(&mut self, v: T) { self.pc = v }
 }
 
 impl <T: RegData>Index<u32> for Register<T> {
