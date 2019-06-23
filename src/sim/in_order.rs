@@ -20,8 +20,9 @@ impl Pipeline {
     (0..PIPE_SIZE-1).rev().for_each(|v| self.0[v+1] = self.0[v]);
     self.0[0] = PipelineEntry::Empty;
   }
+  // TODO only if there are no jumps ahead?
   fn done(&self) -> bool {
-    self.0.iter().any(|&v| v == PipelineEntry::Instr(ProgramState::halt()))
+    self.0.iter().any(|&v| v == PipelineEntry::Instr(InstrType::halt_val()))
   }
 }
 
@@ -51,10 +52,6 @@ impl <T: RegData>ProgramState<T> {
   fn run_phase(mut self, p: &mut Pipeline, phase: Phases) -> ProgramState<T> {
     use PipelineEntry::*;
     let instr = match p[phase] {
-      Instr(v) if v == ProgramState::halt() => if phase == Phases::WB {
-          self.status = Status::Done;
-          return self;
-        } else { return self },
       Empty => return self,
       Instr(raw) => instr::decode(raw),
       Exc(_) if phase != Phases::WB => return self,
@@ -187,6 +184,7 @@ impl <T: RegData>ProgramState<T> {
         _ => (),
       },
       Phases::WB => match instr {
+        InstrType::Halt => self.status = Status::Done,
         InstrType::S{ .. } => assert!(self.mem.complete_write().is_ok()),
         InstrType::B{ .. } => (),
         InstrType::J{ rd, .. } | InstrType::I{ rd, .. }

@@ -48,6 +48,8 @@ pub(crate) enum InstrType {
   B{ var: BInstr, rs1: u32, rs2: u32, imm: i32 },
   U{ var: UInstr, rd: u32, imm: u32 },
   J{ var: JInstr, rd: u32, offset: i32 } ,
+
+  Halt,
 }
 
 impl InstrType {
@@ -75,10 +77,40 @@ impl InstrType {
     use self::j::*;
     InstrType::J{ var: j, rd: rd(v), offset: offset(v) }
   }
+  pub const fn halt_val() -> u32 { 0xfeedfeedu32 }
+  pub fn depends_on(&self, on: &InstrType) -> bool {
+    use InstrType::*;
+    match self {
+      Halt => false,
+      U{ var: UInstr::AUIPC, .. } => match on {
+        J{..} | B{ .. } | I{ var: IInstr::JALR, .. } | Halt => true,
+        _ => false,
+      },
+      J{ .. } | U{ .. } => false,
+      R{ rs1, rs2, ..} | S{rs1,rs2, ..} | B{ rs1, rs2, ..} => match on {
+        S{..} | B{..} => false,
+        R{rd, ..} | I{rd, ..} | U{rd, ..} | J{rd, ..} => rd == rs1 || rd == rs2,
+        Halt => true,
+      }
+      I{ var: IInstr::JALR, rs1, .. } => match on {
+        J{..} | B{ .. } | I{ var: IInstr::JALR, .. } => true,
+        S{..} => false,
+        R{rd, ..} | I{rd, ..} | U{rd, ..} => rd == rs1,
+        Halt => true,
+      },
+      I{ rs1, .. } => match on {
+        // TODO loads can be dependent depending on where the stores are
+        S{..} | B{..} => false,
+        R{rd, ..} | I{rd, ..} | U{rd, ..} | J{rd, ..} => rd == rs1,
+        Halt => true,
+      }
+    }
+  }
 }
 
 pub(crate) fn decode(instr: u32) -> InstrType {
   let v = instr; // just for aliasing
+  if v == InstrType::halt_val() { return InstrType::Halt }
   match opcode(instr) {
     0b1101111 => InstrType::j(JInstr::JAL, v),
     0b0110111 => InstrType::u(UInstr::LUI, v),

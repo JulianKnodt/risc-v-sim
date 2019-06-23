@@ -1,7 +1,7 @@
 use crate::mem;
 use crate::reg::{Register, RegData};
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub enum Exceptions {
   Mem,
 }
@@ -26,6 +26,5 @@ impl <T : RegData> ProgramState<T> {
   pub fn sx(&self, reg: T) -> T::Signed { reg.to_signed() }
   // Zero Extend
   pub fn zx(&self, reg: T) -> T { reg }
-  pub fn halt() -> T { T::from(0xfeedfeedu32) }
 }
 

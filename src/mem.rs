@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use std::ops::Range;
 
 pub const WORD_SIZE: usize = 4;
-#[derive(PartialEq, Copy, Clone, Debug)]
+#[derive(PartialEq, Eq, Copy, Clone, Debug, Hash)]
 pub enum Size {
   WORD,
   HALF,

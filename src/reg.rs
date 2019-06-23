@@ -3,12 +3,13 @@ use num::{Zero, One};
 use std::ops::{Add, AddAssign, Sub, Shr, Shl, BitAnd, BitOr, BitXor, Index};
 use std::mem::transmute;
 use std::collections::VecDeque;
+use std::hash::Hash;
 use std::fmt::{Display, Debug, LowerHex};
 
 pub trait RegData: Zero + One + Add<Output=Self> + AddAssign + Clone + Copy + Default + From<u32>
-  + From<u8> + Sub<Output=Self> + Display + PartialEq + PartialOrd + Shl<Output=Self>
+  + From<u8> + Sub<Output=Self> + Display + PartialEq + Eq + PartialOrd + Ord + Shl<Output=Self>
   + Shr<Output=Self> + BitAnd<Output=Self> + BitOr<Output=Self> + BitXor<Output=Self>
-  + LowerHex + Debug {
+  + LowerHex + Debug + Sync + Send + Hash {
 
   // Corresponding signed type
   type Signed: Clone + Copy + From<i32> + Add<Output=Self::Signed>

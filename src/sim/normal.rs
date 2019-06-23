@@ -12,13 +12,13 @@ pub fn execute<T : RegData>(mut ps: ProgramState<T>) -> Result<ProgramState<T>, 
 fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
   let raw = ps.mem.read_instr(ps.regs.pc().as_usize())
     .unwrap_or_else(|_| panic!("Failed to read instr at {}", ps.regs.pc()));
-  if raw == ProgramState::halt() {
-    ps.status = Status::Done;
-    return ps
-  }
   let instr = instr::decode(raw);
   println!("{:?}", instr);
   match instr {
+    instr::InstrType::Halt => {
+      ps.status = Status::Done;
+      return ps
+    },
     instr::InstrType::R{ var: r, rs1, rs2, rd } => {
       use crate::instr::RInstr;
       let result = match r {

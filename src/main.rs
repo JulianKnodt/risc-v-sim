@@ -2,10 +2,9 @@ use std::io::{BufReader, Read};
 use std::u32;
 use riscv::{mem};
 use riscv::program_state::{ProgramState, Status};
-use riscv::sim::{normal, in_order};
+use riscv::sim::{normal, in_order, out_of_order};
 use riscv::reg::Register;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 enum RunType {
   Normal, Inorder, OutOfOrder,
@@ -36,6 +35,7 @@ fn main() {
           .expect("Expected Integer after --mem");
       },
       "--inorder" => config.run_type = RunType::Inorder,
+      "--outoforder" => config.run_type = RunType::OutOfOrder,
       "--normal" => config.run_type = RunType::Normal,
       flag if flag.starts_with("-") => println!("Unsupported flag: {}", flag),
       f => files.push(f.to_string()),
@@ -70,7 +70,7 @@ fn run(s: String, c: &Config) -> Result<(), ()> {
   match c.run_type {
     RunType::Normal => normal(ps)?,
     RunType::Inorder => in_order(ps)?,
-    RunType::OutOfOrder => unimplemented!(),
+    RunType::OutOfOrder => out_of_order(ps)?,
   };
   Ok(())
 }
