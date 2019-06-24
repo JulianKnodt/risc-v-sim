@@ -53,7 +53,7 @@ impl <T: RegData>ProgramState<T> {
     use PipelineEntry::*;
     let instr = match p[phase] {
       Empty => return self,
-      Instr(raw) => instr::decode(raw),
+      Instr(raw) => instr::decode(raw).unwrap(),
       Exc(_) if phase != Phases::WB => return self,
       Exc(e) => {
         self.status = Status::Exception(e);

@@ -7,17 +7,18 @@ use riscv::reg::Register;
 
 #[derive(Debug, Clone, Copy)]
 enum RunType {
-  Normal, Inorder, OutOfOrder,
+  Normal, Inorder, OutOfOrder
 }
 
 struct Config {
   run_type: RunType,
   mem_size: usize,
+  display_regs: bool,
 }
 
 impl Config {
   fn new() -> Config {
-    Config{ run_type: RunType::Normal, mem_size: 0x10000 }
+    Config{ run_type: RunType::Normal, mem_size: 0x10000, display_regs: false }
   }
 }
 
@@ -34,9 +35,10 @@ fn main() {
           .parse::<usize>()
           .expect("Expected Integer after --mem");
       },
-      "--inorder" => config.run_type = RunType::Inorder,
-      "--outoforder" => config.run_type = RunType::OutOfOrder,
+      "-io" | "--inorder" => config.run_type = RunType::Inorder,
+      "-ooo" | "--outoforder" => config.run_type = RunType::OutOfOrder,
       "--normal" => config.run_type = RunType::Normal,
+      "-v" | "--verbose" => config.display_regs = true,
       flag if flag.starts_with("-") => println!("Unsupported flag: {}", flag),
       f => files.push(f.to_string()),
     }
@@ -67,11 +69,12 @@ fn run(s: String, c: &Config) -> Result<(), ()> {
     mem: memory,
     status: Status::Running,
   };
-  match c.run_type {
+  let output_state = match c.run_type {
     RunType::Normal => normal(ps)?,
     RunType::Inorder => in_order(ps)?,
     RunType::OutOfOrder => out_of_order(ps)?,
   };
+  if c.display_regs { println!("{}", output_state.regs) };
   Ok(())
 }
 

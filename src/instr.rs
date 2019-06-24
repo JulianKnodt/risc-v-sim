@@ -108,10 +108,10 @@ impl InstrType {
   }
 }
 
-pub(crate) fn decode(instr: u32) -> InstrType {
+pub(crate) fn decode(instr: u32) -> Result<InstrType, String> {
   let v = instr; // just for aliasing
-  if v == InstrType::halt_val() { return InstrType::Halt }
-  match opcode(instr) {
+  if v == InstrType::halt_val() { return Ok(InstrType::Halt) }
+  let instr = match opcode(v) {
     0b1101111 => InstrType::j(JInstr::JAL, v),
     0b0110111 => InstrType::u(UInstr::LUI, v),
     0b0010111 => InstrType::u(UInstr::AUIPC, v),
@@ -123,7 +123,7 @@ pub(crate) fn decode(instr: u32) -> InstrType {
       0b101 => InstrType::b(BInstr::BGE, v),
       0b110 => InstrType::b(BInstr::BLTU, v),
       0b111 => InstrType::b(BInstr::BGEU, v),
-      funct3 => panic!("Unexpected funct3 for opcode 0b1100011 : {}", funct3),
+      funct3 => return Err(format!("Unexpected funct3 for opcode 0b1100011 : {}", funct3)),
     },
     0b0000011 => match i::funct3(instr) {
       0b000 => InstrType::i(IInstr::LB, v),
@@ -131,13 +131,13 @@ pub(crate) fn decode(instr: u32) -> InstrType {
       0b010 => InstrType::i(IInstr::LW, v),
       0b100 => InstrType::i(IInstr::LBU, v),
       0b101 => InstrType::i(IInstr::LHU, v),
-      funct3 => panic!("Unexpected funct3 for opcode 0b0000011: {}", funct3),
+      funct3 => return Err(format!("Unexpected funct3 for opcode 0b0000011: {}", funct3)),
     },
     0b0100011 => match s::funct3(instr) {
       0b000 => InstrType::s(SInstr::SB, v),
       0b001 => InstrType::s(SInstr::SH, v),
       0b010 => InstrType::s(SInstr::SW, v),
-      funct3 => panic!("Unexpected funct3 for opcode 0b0100011: {}", funct3),
+      funct3 => return Err(format!("Unexpected funct3 for opcode 0b0100011: {}", funct3)),
     },
     0b0010011 => match i::funct3(instr) {
       0b000 => InstrType::i(IInstr::ADDI, v),
@@ -149,7 +149,7 @@ pub(crate) fn decode(instr: u32) -> InstrType {
       0b001 => InstrType::r(RInstr::SLLI, v),
       0b101 if r::funct7(instr) == 0 => InstrType::r(RInstr::SRLI, v),
       0b101 => InstrType::r(RInstr::SRAI, v),
-      funct3 => panic!("Unexpected funct3 for opcode 0b0010111: {}", funct3),
+      funct3 => return Err(format!("Unexpected funct3 for opcode 0b0010111: {}", funct3)),
     },
     0b0110011 => match (r::funct7(instr), r::funct3(instr)) {
       (0, 0b000) => InstrType::r(RInstr::ADD, v),
@@ -171,13 +171,15 @@ pub(crate) fn decode(instr: u32) -> InstrType {
       //(1, 0b101) => InstrType::R(RInstr::DIVU),
       //(1, 0b110) => InstrType::R(RInstr::REM),
       //(1, 0b111) => InstrType::R(RInstr::REMU),
-      (f7, f3) => panic!("Unexpected funct7 & funct3 for opcode 0b0110011: {}, {}", f7, f3),
+      (f7, f3) =>
+        return Err(format!("Unexpected funct7 & funct3 for opcode 0b0110011: {}, {}", f7, f3)),
     },
     0b1110011 => match i::funct3(instr) {
       0b000 => match i::zx_imm(instr) {
         0 => InstrType::i(IInstr::ECALL, v),
         1 => InstrType::i(IInstr::EBREAK, v),
-        v => panic!("Unexpected immediate for opcode: 0b1110011, funct3: 0b000, {}", v),
+        v =>
+          return Err(format!("Unexpected immediate for opcode: 0b1110011, funct3: 0b000, {}",v)),
       },
       0b001 => InstrType::i(IInstr::CSRRW, v),
       0b010 => InstrType::i(IInstr::CSRRS, v),
@@ -185,10 +187,11 @@ pub(crate) fn decode(instr: u32) -> InstrType {
       0b101 => InstrType::i(IInstr::CSRRW, v),
       0b110 => InstrType::i(IInstr::CSRRS, v),
       0b111 => InstrType::i(IInstr::CSRRC, v),
-      v => panic!("Unexpected funct3 for opcode: 0b1110011, funct3: {}", v),
+      v => return Err(format!("Unexpected funct3 for opcode: 0b1110011, funct3: {}", v)),
     },
-    v => panic!("Unexpected Opcode {:b} for instr {:b}", v, instr),
-  }
+    v => return Err(format!("Unexpected Opcode {:b} for instr {:b}", v, instr)),
+  };
+  Ok(instr)
 }
 
 

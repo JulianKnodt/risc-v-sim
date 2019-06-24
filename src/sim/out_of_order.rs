@@ -1,11 +1,11 @@
-use std::collections::{VecDeque, BinaryHeap, HashSet};
+use std::collections::{VecDeque, BinaryHeap, HashSet, HashMap};
 use crate::instr::{InstrType, decode};
 use crate::program_state::{ProgramState, Status, Exceptions};
 use crate::reg::{RegData};
 use std::cmp::Ordering;
 use crate::mem;
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Hash, PartialEq, Eq, Debug)]
 enum OutputDirective<T : RegData> {
   PC(T),
   Reg(u32, T),
@@ -22,7 +22,7 @@ struct OutputArtifact<T : RegData> {
 }
 
 impl <T : RegData> Ord for OutputArtifact<T> {
-  fn cmp(&self, other: &Self) -> Ordering { self.src_pc.cmp(&other.src_pc) }
+  fn cmp(&self, other: &Self) -> Ordering { self.src_pc.cmp(&other.src_pc).reverse() }
 }
 
 impl <T : RegData> PartialOrd for OutputArtifact<T> {
@@ -40,10 +40,13 @@ pub fn execute<T : RegData>(mut ps: ProgramState<T>) -> Result<ProgramState<T>, 
   let mut unprocessed = BinaryHeap::new();
   while ps.status == Status::Running {
     let curr_pc = ps.regs.pc();
-    let valid = (0..10)
+    (0..10)
       .map(|i| curr_pc + T::from(i * mem::WORD_SIZE as u32))
       .filter_map(|i| ps.mem.read_instr(i.as_usize()).ok().map(|raw| (raw, i)))
-      .map(|(raw, pc)| (decode(raw), pc))
+      .filter_map(|(raw, pc)| match decode(raw) {
+        Ok(instr) => Some((instr, pc)),
+        Err(_) => None,
+      })
       .for_each(|(instr, pc): (InstrType, T)| {
         let dependent = instr_queue.iter().find(|(_, i, _)| instr.depends_on(i));
         match dependent {
@@ -52,29 +55,51 @@ pub fn execute<T : RegData>(mut ps: ProgramState<T>) -> Result<ProgramState<T>, 
         };
       });
 
-    let mut max_accepted_pc = curr_pc;
-    let (runnable, pending) : (VecDeque<_>, VecDeque<_>) = instr_queue
+    let (mut runnable, mut pending) = (HashMap::new(), VecDeque::new());
+    instr_queue
       .into_iter()
-      .partition(|(_,_,v)| match v {
-        None => true,
-        Some(max_pc) => *max_pc == max_accepted_pc, // TODO fix to allow more
+      .for_each(|v| {
+        let (pc, instr, dependency) = v;
+        match dependency {
+          None => { runnable.insert(pc, instr); },
+          Some(dependent_pc) =>
+            if runnable.contains_key(&dependent_pc) { runnable.insert(pc, instr); }
+            else { pending.push_back(v); },
+        };
       });
     instr_queue = pending;
 
     runnable
       .into_iter()
-      .map(|(pc, instr, _)| OutputArtifact{
+      .map(|(pc, instr)| OutputArtifact{
         src_pc: pc,
         finish: OutputDirective::from(pc, instr, &ps),
       })
       .for_each(|v| unprocessed.push(v));
 
-    while let Some(artifact) = unprocessed.peek() {
+    while let Some(artifact) = unprocessed.pop() {
       if artifact.src_pc == ps.regs.pc() {
-        assert!(unprocessed.pop().is_some(), "Huh? Didn't get anything from popping peeked");
-        unimplemented!(); // artifact.finish(&mut ps);
+        artifact.finish
+          .iter()
+          .for_each(|directive| {
+            println!("{:?}", directive);
+            match directive {
+              PC(new_pc) => ps.regs.assign_pc(*new_pc),
+              Exception(e) => ps.status = Status::Exception(*e),
+              Reg(rd, val) => ps.regs.force_assign(*rd, *val),
+              MemStore(val, loc, sz) => if let Err(()) = ps.mem.write(*loc, *val, *sz) {
+                ps.status = Status::Exception(Exceptions::Mem)
+              },
+              Halt => ps.status = Status::Done,
+              Nop => (),
+            };
+          });
         if ps.status != Status::Running { break }
-      } else { break }
+        ps.regs.inc_pc();
+      } else {
+        unprocessed.push(artifact);
+        break
+      }
     }
   };
   Ok(ps)

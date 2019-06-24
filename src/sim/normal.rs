@@ -5,15 +5,14 @@ use crate::instr::{self, InstrType};
 
 pub fn execute<T : RegData>(mut ps: ProgramState<T>) -> Result<ProgramState<T>, ()> {
   while ps.status == Status::Running { ps = run_instr(ps); }
-  println!("{}", ps.regs);
   Ok(ps)
 }
 
 fn run_instr<T : RegData>(mut ps: ProgramState<T>) -> ProgramState<T> {
   let raw = ps.mem.read_instr(ps.regs.pc().as_usize())
     .unwrap_or_else(|_| panic!("Failed to read instr at {}", ps.regs.pc()));
-  let instr = instr::decode(raw);
-  println!("{:?}", instr);
+  let instr = instr::decode(raw).unwrap();
+  // println!("{:?}", instr);
   match instr {
     instr::InstrType::Halt => {
       ps.status = Status::Done;
