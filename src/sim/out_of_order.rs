@@ -36,6 +36,7 @@ impl <T : RegData> PartialEq for OutputArtifact<T> {
 
 
 pub fn execute<T : RegData>(mut ps: ProgramState<T>) -> Result<ProgramState<T>, ()> {
+  use OutputDirective::*;
   let mut instr_queue : VecDeque<(T, InstrType, Option<T>)> = VecDeque::new();
   let mut unprocessed = BinaryHeap::new();
   while ps.status == Status::Running {
@@ -50,7 +51,7 @@ pub fn execute<T : RegData>(mut ps: ProgramState<T>) -> Result<ProgramState<T>, 
       .for_each(|(instr, pc): (InstrType, T)| {
         let dependent = instr_queue.iter().find(|(_, i, _)| instr.depends_on(i));
         match dependent {
-          Some((max_pc,_,_)) => instr_queue.push_back((pc,instr,Some(*max_pc))),
+          Some(&(max_pc,_,_)) => instr_queue.push_back((pc,instr,Some(max_pc))),
           None => instr_queue.push_back((pc, instr, None)),
         };
       });
@@ -87,7 +88,7 @@ pub fn execute<T : RegData>(mut ps: ProgramState<T>) -> Result<ProgramState<T>, 
               PC(new_pc) => ps.regs.assign_pc(*new_pc),
               Exception(e) => ps.status = Status::Exception(*e),
               Reg(rd, val) => ps.regs.force_assign(*rd, *val),
-              MemStore(val, loc, sz) => if let Err(()) = ps.mem.write(*loc, *val, *sz) {
+              MemStore(val, loc, sz) => if let Err(_) = ps.mem.write(*loc, *val, *sz) {
                 ps.status = Status::Exception(Exceptions::Mem)
               },
               Halt => ps.status = Status::Done,

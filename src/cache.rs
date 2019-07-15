@@ -1,3 +1,4 @@
+use crate::mem::Memory;
 // are u32s sufficient to store in cache?
 
 // todo implement Caches
@@ -13,7 +14,14 @@ enum Associativity {
   Full,
 }
 
-pub struct Cache {
+pub struct Cache<'a, RegData> {
   assoc: Associativity,
   data: Vec<CacheRow>,
+  backing: &'a Memory
+}
+
+impl Cache {
+  pub fn new() -> Self {
+
+  }
 }

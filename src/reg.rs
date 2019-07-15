@@ -1,19 +1,18 @@
 extern crate num;
-use num::{Zero, One};
-use std::ops::{Add, AddAssign, Sub, Shr, Shl, BitAnd, BitOr, BitXor, Index};
+use std::ops::{Shr, Shl, BitAnd, BitOr, BitXor, Index};
 use std::mem::transmute;
 use std::collections::VecDeque;
 use std::hash::Hash;
 use std::fmt::{Display, Debug, LowerHex};
 
-pub trait RegData: Zero + One + Add<Output=Self> + AddAssign + Clone + Copy + Default + From<u32>
-  + From<u8> + Sub<Output=Self> + Display + PartialEq + Eq + PartialOrd + Ord + Shl<Output=Self>
+// TODO
+
+pub trait RegData: num::Unsigned + Clone + Copy + From<u32> + From<u8> + Ord + Shl<Output=Self>
   + Shr<Output=Self> + BitAnd<Output=Self> + BitOr<Output=Self> + BitXor<Output=Self>
-  + LowerHex + Debug + Sync + Send + Hash {
+  + LowerHex + Debug + Display + Hash {
 
   // Corresponding signed type
-  type Signed: Clone + Copy + From<i32> + Add<Output=Self::Signed>
-    + Sub<Output=Self::Signed> + PartialEq + PartialOrd + Shl<Output=Self::Signed>
+  type Signed: num::Signed + From<i32> + Ord + Shl<Output=Self::Signed>
     + Shr<Output=Self::Signed> + BitAnd<Output=Self::Signed> + Display;
 
   fn to_signed(self) -> Self::Signed;
@@ -21,12 +20,11 @@ pub trait RegData: Zero + One + Add<Output=Self> + AddAssign + Clone + Copy + De
   fn offset(&self, offset: Self::Signed) -> Self;
   fn as_usize(&self) -> usize;
 
+  const BYTE_SIZE: usize = std::mem::size_of::<Self>();
   // Byte Representation of Data
   // The best version would be this, but doesn't compile yet
   // Some bugs on github opened for it
-  // const BYTE_SIZE: usize;
   // fn to_le_bytes(&self) -> [u8; Self::BYTE_SIZE];
-  const BYTE_SIZE: usize;
   fn to_le_bytes(&self) -> Box<[u8]>;
   fn from_le_bytes(bytes: Box<[u8]>) -> Self;
 }
@@ -42,7 +40,6 @@ impl RegData for u32 {
   #[inline]
   fn from_signed(v: Self::Signed) -> Self { unsafe { transmute::<Self::Signed, Self>(v) } }
 
-  const BYTE_SIZE: usize = 4;
   fn to_le_bytes(&self) -> Box<[u8]> { Box::new(u32::to_le_bytes(*self)) }
   fn from_le_bytes(bytes: Box<[u8]>) -> Self {
     let mut temp: [u8; Self::BYTE_SIZE] = Default::default();
@@ -62,7 +59,6 @@ impl RegData for u64 {
   #[inline]
   fn from_signed(v: Self::Signed) -> Self { unsafe { transmute::<Self::Signed, Self>(v) } }
 
-  const BYTE_SIZE: usize = 8;
   fn to_le_bytes(&self) -> Box<[u8]> { Box::new(u64::to_le_bytes(*self)) }
   fn from_le_bytes(bytes: Box<[u8]>) -> Self {
     let mut temp: [u8; Self::BYTE_SIZE] = Default::default();

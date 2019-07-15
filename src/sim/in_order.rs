@@ -166,7 +166,7 @@ impl <T: RegData>ProgramState<T> {
           };
           match result {
             Ok(v) => self.regs.assign(rd, v),
-            Err(()) => p[phase] = PipelineEntry::Exc(Exceptions::Mem),
+            Err(_) => p[phase] = PipelineEntry::Exc(Exceptions::Mem),
           };
         },
         InstrType::S { var, rs1, rs2, imm } => {

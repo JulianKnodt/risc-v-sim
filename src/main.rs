@@ -62,7 +62,7 @@ fn run(s: String, c: &Config) -> Result<(), ()> {
     memory.write(
       v * mem::WORD_SIZE,
       u32::from_ne_bytes(buffer).to_le(),
-      mem::Size::WORD)?;
+      mem::Size::WORD).expect("Initial write was not in bounds, allocate more memory");
   };
   let ps = ProgramState::<u32> {
     regs: Register::new(32),
